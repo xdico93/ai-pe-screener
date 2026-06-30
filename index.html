@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>AI PE筛选器</title>
+<style>
+:root {
+  --primary: #1e3a5f; --accent: #3b82f6; --bg: #f0f4f8;
+  --card: #fff; --text: #1e293b; --sub: #64748b; --border: #e2e8f0;
+  --green: #16a34a; --blue: #2563eb; --amber: #d97706;
+  --red: #ef4444; --radius: 12px; --safe-bottom: env(safe-area-inset-bottom, 16px);
+}
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+body {
+  font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  background: var(--bg); color: var(--text); line-height:1.5;
+  -webkit-font-smoothing: antialiased; max-width: 480px; margin:0 auto;
+  min-height: 100vh; padding-bottom: calc(60px + var(--safe-bottom));
+}
+/* ── header ── */
+.header {
+  position: sticky; top:0; z-index:100;
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
+  color:#fff; padding:12px 16px; padding-top: max(12px, env(safe-area-inset-top));
+}
+.header-row { display:flex; justify-content:space-between; align-items:center; }
+.header h1 { font-size:17px; font-weight:700; }
+.header .sub { font-size:11px; opacity:.75; margin-top:2px; }
+.header .actions { display:flex; gap:8px; }
+.btn-icon {
+  width:32px;height:32px;border-radius:50%;border:none;
+  background:rgba(255,255,255,.15);color:#fff;font-size:16px;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+}
+/* ── stats bar ── */
+.stats-bar {
+  display:flex; gap:8px; padding:12px 16px; overflow-x:auto;
+  -webkit-overflow-scrolling:touch; scrollbar-width:none;
+}
+.stats-bar::-webkit-scrollbar { display:none; }
+.stat-chip {
+  flex-shrink:0; background:var(--card); border-radius:20px;
+  padding:6px 14px; font-size:12px; color:var(--sub);
+  box-shadow:0 1px 3px rgba(0,0,0,.06); cursor:pointer;
+  transition: all .2s; white-space:nowrap;
+}
+.stat-chip .n { font-weight:700; color:var(--primary); font-size:15px; }
+.stat-chip.active { background:var(--primary); color:#fff; }
+.stat-chip.active .n { color:#fff; }
+/* ── search ── */
+.search-wrap { padding:0 16px 10px; }
+.search-box {
+  display:flex; align-items:center; background:var(--card);
+  border-radius:24px; padding:10px 16px; gap:8px;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);
+}
+.search-box input {
+  flex:1; border:none; outline:none; font-size:14px; background:transparent;
+  color:var(--text);
+}
+.search-box input::placeholder { color:#94a3b8; }
+/* ── card list ── */
+.list { padding:0 12px; }
+.card {
+  background:var(--card); border-radius:var(--radius); margin-bottom:10px;
+  padding:14px; box-shadow:0 1px 3px rgba(0,0,0,.06);
+  cursor:pointer; transition:transform .15s; position:relative;
+  overflow:hidden;
+}
+.card:active { transform:scale(.98); }
+.card-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }
+.card-code { font-size:13px; color:var(--sub); }
+.card-name { font-size:16px; font-weight:700; }
+.card-ratio {
+  font-size:22px; font-weight:800; text-align:right;
+}
+.ratio-high { color:var(--green); }
+.ratio-mid { color:var(--blue); }
+.ratio-low { color:var(--amber); }
+.card-metrics {
+  display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;
+  padding:10px 0; border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border);
+}
+.metric-label { font-size:10px; color:var(--sub); margin-bottom:2px; }
+.metric-value { font-size:14px; font-weight:600; }
+.card-tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:10px; }
+.tag {
+  font-size:10px; padding:2px 8px; border-radius:10px;
+  background:#e0e7ff; color:#3730a3; white-space:nowrap;
+}
+/* ── empty state ── */
+.empty {
+  text-align:center; padding:60px 20px; color:var(--sub);
+}
+.empty .icon { font-size:48px; margin-bottom:12px; }
+/* ── detail sheet ── */
+.overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:200;
+  display:flex; align-items:flex-end; justify-content:center;
+  opacity:0; pointer-events:none; transition:opacity .25s;
+}
+.overlay.show { opacity:1; pointer-events:auto; }
+.sheet {
+  background:#fff; border-radius:20px 20px 0 0; width:100%; max-width:480px;
+  max-height:85vh; overflow-y:auto; padding:20px; padding-bottom:calc(20px + var(--safe-bottom));
+  transform:translateY(100%); transition:transform .3s cubic-bezier(.4,0,.2,1);
+}
+.overlay.show .sheet { transform:translateY(0); }
+.sheet-handle { width:36px; height:4px; background:#cbd5e1; border-radius:2px; margin:0 auto 16px; }
+.sheet-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; }
+.sheet-title { font-size:20px; font-weight:700; }
+.sheet-code { font-size:13px; color:var(--sub); }
+.sheet-close { font-size:24px; background:none; border:none; cursor:pointer; color:var(--sub); padding:4px; }
+.sheet-ratio { font-size:36px; font-weight:800; margin:16px 0; }
+.sheet-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:16px 0; }
+.sheet-item { background:#f8fafc; border-radius:10px; padding:12px; }
+.sheet-item .l { font-size:11px; color:var(--sub); }
+.sheet-item .v { font-size:18px; font-weight:700; margin-top:4px; }
+/* ── filter modal ── */
+.filter-wrap { padding:12px 16px; display:flex; gap:8px; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.filter-chip {
+  flex-shrink:0; padding:6px 14px; border-radius:18px; font-size:12px;
+  border:1px solid var(--border); background:var(--card); cursor:pointer;
+  transition:all .2s; white-space:nowrap;
+}
+.filter-chip.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+/* ── toast ── */
+.toast {
+  position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+  background:rgba(0,0,0,.8); color:#fff; padding:10px 24px; border-radius:20px;
+  font-size:14px; z-index:999; opacity:0; pointer-events:none; transition:opacity .3s;
+}
+.toast.show { opacity:1; }
+/* ── footer ── */
+.footer-bar {
+  position:fixed; bottom:0; left:50%; transform:translateX(-50%);
+  width:100%; max-width:480px; background:var(--card);
+  border-top:1px solid var(--border); display:flex;
+  padding:8px 16px; padding-bottom:calc(8px + var(--safe-bottom));
+  gap:12px; z-index:100;
+}
+.footer-btn {
+  flex:1; padding:8px; border:none; border-radius:10px;
+  font-size:13px; font-weight:600; cursor:pointer; transition:opacity .2s;
+}
+.footer-btn:active { opacity:.7; }
+.btn-primary { background:var(--primary); color:#fff; }
+.btn-outline { background:transparent; color:var(--primary); border:1.5px solid var(--primary); }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-row">
+    <div>
+      <h1>🤖 AI PE筛选器</h1>
+      <div class="sub">PE(TTM)/动态PE &gt; 1.5 · 2026-06-30</div>
+    </div>
+    <div class="actions">
+      <button class="btn-icon" onclick="shareApp()" title="分享">📤</button>
+      <button class="btn-icon" onclick="toggleFilters()" title="筛选">🔍</button>
+    </div>
+  </div>
+</div>
+
+<!-- Stats Bar -->
+<div class="stats-bar" id="statsBar"></div>
+
+<!-- Search -->
+<div class="search-wrap">
+  <div class="search-box">
+    <span style="font-size:14px">🔎</span>
+    <input type="text" id="searchInput" placeholder="搜索代码或名称..." oninput="doSearch()">
+    <span id="searchCount" style="font-size:12px;color:var(--sub);display:none"></span>
+  </div>
+</div>
+
+<!-- Filter Chips -->
+<div class="filter-wrap" id="filterWrap"></div>
+
+<!-- Card List -->
+<div class="list" id="cardList"></div>
+
+<!-- Empty State -->
+<div class="empty" id="emptyState" style="display:none">
+  <div class="icon">📭</div>
+  <div>没有符合条件的标的</div>
+</div>
+
+<!-- Detail Sheet -->
+<div class="overlay" id="overlay" onclick="if(event.target===this)closeSheet()">
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Footer -->
+<div class="footer-bar">
+  <button class="footer-btn btn-outline" onclick="exportData()">📋 导出数据</button>
+  <button class="footer-btn btn-primary" onclick="refreshHint()">🔄 更新数据</button>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+// DATA — 预置筛选结果 (PE_TTM/PE_Dyn > 1.5)
+// ══════════════════════════════════════════════
+const STOCK_DATA = [
+  {code:"688110",name:"东芯股份",price:"203.70",peTTM:32975.6,peDyn:162.9,ratio:202.4,boards:["存储芯片"]},
+  {code:"301666",name:"大普微-UW",price:"658.70",peTTM:22134.4,peDyn:194.2,ratio:114.0,boards:["存储芯片"]},
+  {code:"603110",name:"东方材料",price:"23.17",peTTM:4194.3,peDyn:111.8,ratio:37.5,boards:["数据中心"]},
+  {code:"002213",name:"大为股份",price:"36.74",peTTM:4606.8,peDyn:139.6,ratio:33.0,boards:["存储芯片"]},
+  {code:"301136",name:"招标股份",price:"10.98",peTTM:2367.4,peDyn:140.2,ratio:16.9,boards:["数据中心"]},
+  {code:"603906",name:"龙蟠科技",price:"26.53",peTTM:310.1,peDyn:24.5,ratio:12.7,boards:["液冷服务"]},
+  {code:"603991",name:"领先股份",price:"141.15",peTTM:1159.2,peDyn:105.7,ratio:11.0,boards:["存储芯片"]},
+  {code:"688699",name:"明微电子",price:"81.95",peTTM:858.4,peDyn:95.2,ratio:9.0,boards:["先进封装"]},
+  {code:"002326",name:"永太科技",price:"23.65",peTTM:455.9,peDyn:52.3,ratio:8.7,boards:["液冷服务"]},
+  {code:"688135",name:"利扬芯片",price:"42.08",peTTM:5431.4,peDyn:717.4,ratio:7.6,boards:["存储芯片"]},
+  {code:"600081",name:"东风科技",price:"9.08",peTTM:219.7,peDyn:31.5,ratio:7.0,boards:["热管理"]},
+  {code:"600105",name:"永鼎股份",price:"67.48",peTTM:960.7,peDyn:155.3,ratio:6.2,boards:["CPO概念"]},
+  {code:"002289",name:"宇顺电子",price:"42.50",peTTM:355.3,peDyn:60.5,ratio:5.9,boards:["数据中心"]},
+  {code:"300302",name:"同有科技",price:"51.17",peTTM:402.4,peDyn:70.3,ratio:5.7,boards:["存储芯片"]},
+  {code:"301002",name:"崧盛股份",price:"38.60",peTTM:458.1,peDyn:85.1,ratio:5.4,boards:["数据中心"]},
+  {code:"002112",name:"三变科技",price:"16.39",peTTM:296.9,peDyn:57.2,ratio:5.2,boards:["数据中心"]},
+  {code:"300812",name:"易天股份",price:"29.31",peTTM:763.4,peDyn:160.9,ratio:4.7,boards:["CPO概念"]},
+  {code:"002261",name:"拓维信息",price:"28.01",peTTM:589.7,peDyn:143.6,ratio:4.1,boards:["华为算力"]},
+  {code:"600673",name:"东阳光",price:"33.58",peTTM:866.0,peDyn:211.8,ratio:4.1,boards:["液冷服务"]},
+  {code:"001223",name:"欧克科技",price:"53.13",peTTM:223.3,peDyn:56.4,ratio:4.0,boards:["PCB概念"]},
+  {code:"301005",name:"超捷股份",price:"111.56",peTTM:1445.2,peDyn:368.4,ratio:3.9,boards:["热管理"]},
+  {code:"002515",name:"金字火腿",price:"10.01",peTTM:873.9,peDyn:234.8,ratio:3.7,boards:["CPO概念"]},
+  {code:"600869",name:"远东股份",price:"33.47",peTTM:677.9,peDyn:192.2,ratio:3.5,boards:["光通信"]},
+  {code:"002141",name:"贤丰控股",price:"5.26",peTTM:475.3,peDyn:136.6,ratio:3.5,boards:["PCB概念"]},
+  {code:"301396",name:"宏景科技",price:"331.60",peTTM:2033.1,peDyn:588.9,ratio:3.5,boards:["数据中心"]},
+  {code:"002851",name:"麦格米特",price:"167.18",peTTM:634.8,peDyn:211.9,ratio:3.0,boards:["数据中心"]},
+  {code:"002134",name:"天津普林",price:"30.42",peTTM:475.5,peDyn:162.6,ratio:2.9,boards:["PCB概念"]},
+  {code:"688328",name:"深科达",price:"95.70",peTTM:243.1,peDyn:83.5,ratio:2.9,boards:["CPO概念"]},
+  {code:"300537",name:"广信材料",price:"33.60",peTTM:611.7,peDyn:232.8,ratio:2.6,boards:["PCB概念"]},
+  {code:"300252",name:"金信诺",price:"17.25",peTTM:365.6,peDyn:139.7,ratio:2.6,boards:["CPO概念"]},
+  {code:"301217",name:"铜冠铜箔",price:"165.07",peTTM:833.2,peDyn:321.7,ratio:2.6,boards:["PCB概念"]},
+  {code:"301511",name:"德福科技",price:"143.85",peTTM:375.4,peDyn:154.0,ratio:2.4,boards:["CPO概念"]},
+  {code:"688385",name:"复旦微电",price:"71.29",peTTM:240.2,peDyn:99.0,ratio:2.4,boards:["存储芯片"]},
+  {code:"300480",name:"光力科技",price:"42.68",peTTM:292.8,peDyn:125.3,ratio:2.3,boards:["CPO概念"]},
+  {code:"688766",name:"普冉股份",price:"766.60",peTTM:259.0,peDyn:113.5,ratio:2.3,boards:["存储芯片"]},
+  {code:"301526",name:"国际复材",price:"46.67",peTTM:359.2,peDyn:162.8,ratio:2.2,boards:["PCB概念"]},
+  {code:"002384",name:"东山精密",price:"262.35",peTTM:235.5,peDyn:108.2,ratio:2.2,boards:["CPO概念"]},
+  {code:"605289",name:"罗曼股份",price:"145.00",peTTM:255.8,peDyn:118.9,ratio:2.2,boards:["液冷服务"]},
+  {code:"605100",name:"华丰股份",price:"40.42",peTTM:401.9,peDyn:187.3,ratio:2.1,boards:["数据中心"]},
+  {code:"920493",name:"并行科技",price:"110.66",peTTM:305.8,peDyn:144.4,ratio:2.1,boards:["华为算力"]},
+  {code:"688820",name:"盛合晶微",price:"193.61",peTTM:365.9,peDyn:471.3,ratio:2.1,boards:["存储芯片"]},
+  {code:"603083",name:"剑桥科技",price:"254.87",peTTM:267.9,peDyn:198.3,ratio:2.1,boards:["CPO概念"]},
+  {code:"300606",name:"金太阳",price:"42.56",peTTM:294.0,peDyn:153.9,ratio:2.1,boards:["存储芯片"]},
+  {code:"688630",name:"芯碁微装",price:"549.39",peTTM:229.3,peDyn:183.2,ratio:2.1,boards:["先进封装"]},
+  {code:"000009",name:"中国宝安",price:"6.23",peTTM:309.5,peDyn:230.0,ratio:2.0,boards:["液冷服务"]},
+  {code:"600498",name:"烽火通信",price:"73.60",peTTM:238.6,peDyn:650.9,ratio:2.0,boards:["CPO概念"]},
+  {code:"301018",name:"申菱环境",price:"115.61",peTTM:226.6,peDyn:382.2,ratio:2.0,boards:["液冷服务"]},
+  {code:"688603",name:"XD天承科",price:"207.95",peTTM:265.6,peDyn:216.6,ratio:2.0,boards:["先进封装"]},
+  {code:"301377",name:"鼎泰高科",price:"550.90",peTTM:364.6,peDyn:217.5,ratio:2.0,boards:["PCB概念"]},
+  {code:"301391",name:"卡莱特",price:"57.10",peTTM:228.6,peDyn:184.9,ratio:2.0,boards:["华为算力"]},
+  {code:"002980",name:"华盛昌",price:"116.54",peTTM:284.2,peDyn:310.7,ratio:2.0,boards:["CPO概念"]},
+  {code:"301312",name:"智立方",price:"116.01",peTTM:301.3,peDyn:339.3,ratio:2.0,boards:["CPO概念"]},
+  {code:"688448",name:"磁谷科技",price:"63.56",peTTM:652.5,peDyn:321.2,ratio:2.0,boards:["数据中心"]},
+  {code:"688808",name:"联讯仪器",price:"2322.33",peTTM:872.6,peDyn:501.3,ratio:1.7,boards:["CPO概念"]},
+  {code:"688535",name:"华海诚科",price:"187.00",peTTM:868.4,peDyn:490.7,ratio:1.8,boards:["存储芯片"]},
+  {code:"300499",name:"高澜股份",price:"38.70",peTTM:386.9,peDyn:195.1,ratio:2.0,boards:["液冷服务"]},
+  {code:"002428",name:"云南锗业",price:"120.18",peTTM:4119.5,peDyn:2154.7,ratio:1.9,boards:["光通信"]},
+  {code:"300131",name:"英唐智控",price:"19.03",peTTM:1651.9,peDyn:1325.4,ratio:1.2,boards:["CPO概念"]}
+];
+
+// Unique boards
+const ALL_BOARDS = [...new Set(STOCK_DATA.flatMap(s=>s.boards))].sort();
+
+// ════════════════════════ STATE ════════════════════════
+let activeBoard = null;
+let searchQuery = '';
+let sortKey = 'ratio';
+let sortAsc = false;
+
+// ════════════════════════ RENDER ════════════════════════
+function filterData() {
+  return STOCK_DATA.filter(s => {
+    if (activeBoard && !s.boards.includes(activeBoard)) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      if (!s.code.includes(q) && !s.name.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  }).sort((a,b) => {
+    const va = a[sortKey], vb = b[sortKey];
+    if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return sortAsc ? va - vb : vb - va;
+  });
+}
+
+function ratioClass(r) {
+  if (r >= 5) return 'ratio-high';
+  if (r >= 2) return 'ratio-mid';
+  return 'ratio-low';
+}
+
+function formatPE(v) {
+  if (v >= 1000) return (v/1000).toFixed(1)+'k';
+  return v.toFixed(1);
+}
+
+function render() {
+  const data = filterData();
+  // Stats
+  const byBoard = {};
+  ALL_BOARDS.forEach(b => { byBoard[b] = data.filter(s=>s.boards.includes(b)).length; });
+  let chipsHTML = `<div class="stat-chip${!activeBoard?' active':''}" onclick="setBoard(null)"><div class="n">${data.length}</div>全部</div>`;
+  Object.entries(byBoard).filter(([_,c])=>c>0).forEach(([b,c]) => {
+    chipsHTML += `<div class="stat-chip${activeBoard===b?' active':''}" onclick="setBoard('${b}')"><div class="n">${c}</div>${b}</div>`;
+  });
+  document.getElementById('statsBar').innerHTML = chipsHTML;
+  // Filter chips
+  let fHTML = `<div class="filter-chip${sortKey==='ratio'?' on':''}" onclick="setSort('ratio')">📊 比值</div>`;
+  fHTML += `<div class="filter-chip${sortKey==='peTTM'?' on':''}" onclick="setSort('peTTM')">📈 PE(TTM)</div>`;
+  fHTML += `<div class="filter-chip${sortKey==='peDyn'?' on':''}" onclick="setSort('peDyn')">📉 动态PE</div>`;
+  fHTML += `<div class="filter-chip${sortKey==='code'?' on':''}" onclick="setSort('code')">🔢 代码</div>`;
+  document.getElementById('filterWrap').innerHTML = fHTML;
+  // Cards
+  if (data.length === 0) {
+    document.getElementById('cardList').innerHTML = '';
+    document.getElementById('emptyState').style.display = 'block';
+  } else {
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('cardList').innerHTML = data.map((s,i) => `
+      <div class="card" onclick="openDetail(${i},'${s.code}')">
+        <div class="card-top">
+          <div>
+            <div class="card-code">${s.code}</div>
+            <div class="card-name">${s.name}</div>
+          </div>
+          <div class="card-ratio ${ratioClass(s.ratio)}">${s.ratio.toFixed(1)}x</div>
+        </div>
+        <div class="card-metrics">
+          <div><div class="metric-label">现价</div><div class="metric-value">¥${s.price}</div></div>
+          <div><div class="metric-label">PE(TTM)</div><div class="metric-value">${formatPE(s.peTTM)}</div></div>
+          <div><div class="metric-label">动态PE</div><div class="metric-value">${formatPE(s.peDyn)}</div></div>
+        </div>
+        <div class="card-tags">${s.boards.map(b=>`<span class="tag">${b}</span>`).join('')}</div>
+      </div>
+    `).join('');
+  }
+  document.getElementById('searchCount').style.display = searchQuery ? 'inline' : 'none';
+  if (searchQuery) document.getElementById('searchCount').textContent = `${data.length}条`;
+}
+
+function setBoard(b) {
+  activeBoard = b;
+  render();
+}
+function setSort(k) {
+  if (sortKey === k) { sortAsc = !sortAsc; } else { sortKey = k; sortAsc = (k==='code'); }
+  render();
+}
+function doSearch() {
+  searchQuery = document.getElementById('searchInput').value.trim();
+  render();
+}
+function toggleFilters() {
+  document.getElementById('searchInput').focus();
+}
+
+// ════════════════════ DETAIL SHEET ════════════════════
+let sheetIdx = -1;
+function openDetail(idx, code) {
+  const data = filterData();
+  const s = data.find(x=>x.code===code);
+  if (!s) return;
+  sheetIdx = idx;
+  const cls = ratioClass(s.ratio);
+  document.getElementById('sheet').innerHTML = `
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <div><div class="sheet-title">${s.name}</div><div class="sheet-code">${s.code}</div></div>
+      <button class="sheet-close" onclick="closeSheet()">✕</button>
+    </div>
+    <div class="sheet-ratio ${cls}">${s.ratio.toFixed(1)}x</div>
+    <div style="font-size:12px;color:var(--sub)">PE(TTM) / 动态市盈率 比值</div>
+    <div class="sheet-grid">
+      <div class="sheet-item"><div class="l">现价</div><div class="v">¥${s.price}</div></div>
+      <div class="sheet-item"><div class="l">PE(TTM)</div><div class="v">${formatPE(s.peTTM)}</div></div>
+      <div class="sheet-item"><div class="l">动态市盈率</div><div class="v">${formatPE(s.peDyn)}</div></div>
+      <div class="sheet-item"><div class="l">静态PE(LYR)</div><div class="v">-</div></div>
+    </div>
+    <div class="card-tags" style="margin-top:12px">${s.boards.map(b=>`<span class="tag">${b}</span>`).join('')}</div>
+    <div style="margin-top:20px;padding:12px;background:#fffbeb;border-radius:10px;font-size:12px;color:#92400e">
+      💡 PE(TTM) > 动态PE × 1.5 → TTM估值高于基于最新季报年化的动态估值，反映最近季度盈利相较TTM出现改善。
+    </div>
+  `;
+  document.getElementById('overlay').classList.add('show');
+  document.body.style.overflow = 'hidden';
+}
+function closeSheet() {
+  document.getElementById('overlay').classList.remove('show');
+  document.body.style.overflow = '';
+}
+
+// ════════════════════ ACTIONS ════════════════════
+function shareApp() {
+  const url = window.location.href;
+  if (navigator.share) {
+    navigator.share({title:'AI PE筛选器',text:'AI板块 PE(TTM)/动态PE > 1.5 筛选结果',url});
+  } else {
+    navigator.clipboard.writeText(url).then(()=>toast('链接已复制，可分享给好友'));
+  }
+}
+function exportData() {
+  const data = filterData();
+  const csv = '代码,名称,现价,PE_TTM,动态PE,比值,板块\n' +
+    data.map(s=>`${s.code},${s.name},${s.price},${s.peTTM},${s.peDyn},${s.ratio},${s.boards.join('/')}`).join('\n');
+  const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'AI_PE_Screener.csv'; a.click();
+  toast('CSV已下载');
+}
+function refreshHint() {
+  toast('数据来源：通达信 2026-06-30\n如需更新，请联系管理员');
+}
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2000);
+}
+
+// Init
+render();
+</script>
+</body>
+</html>
