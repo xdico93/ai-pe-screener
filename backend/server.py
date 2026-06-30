@@ -101,12 +101,12 @@ def load_concept_map():
 _cache = {"data": None, "ts": 0, "lock": threading.Lock()}
 CACHE_TTL = 300  # 5分钟
 
-def get_cached_or_fetch(min_ratio, max_results):
-    """缓存优先: 5分钟内返回缓存，否则重新拉取"""
+def get_cached_or_fetch():
+    """缓存优先: 5分钟内返回缓存，否则重新拉取。返回全部有效PE数据，不做任何筛选。"""
     now = time.time()
     with _cache["lock"]:
         if _cache["data"] and (now - _cache["ts"]) < CACHE_TTL:
-            return _filter_and_limit(_cache["data"], min_ratio, max_results)
+            return _build_response(_cache["data"])
 
     # 重新拉取
     codes = load_codes()
@@ -141,18 +141,16 @@ def get_cached_or_fetch(min_ratio, max_results):
         _cache["data"] = (stocks, meta_base)
         _cache["ts"] = now
 
-    return _filter_and_limit((stocks, meta_base), min_ratio, max_results)
+    return _build_response((stocks, meta_base))
 
-def _filter_and_limit(cached, min_ratio, max_results):
+def _build_response(cached):
+    """构建响应: 返回全部有效PE数据，前端负责所有筛选/排序"""
     stocks, meta_base = cached
-    filtered = [s for s in stocks if s["ratio"] >= min_ratio]
-    filtered.sort(key=lambda x: x["ratio"], reverse=True)
-    total_filtered = len(filtered)
-    if len(filtered) > max_results:
-        filtered = filtered[:max_results]
+    # 按比值降序排列（默认展示顺序），但返回全部
+    stocks_sorted = sorted(stocks, key=lambda x: x["ratio"], reverse=True)
     return {
-        "meta": {**meta_base, "filtered": total_filtered, "returned": len(filtered), "baselineRatio": min_ratio},
-        "data": filtered,
+        "meta": {**meta_base, "returned": len(stocks_sorted)},
+        "data": stocks_sorted,
     }
 
 def _empty(msg=""):
@@ -178,12 +176,9 @@ async def health():
     return {"status": "ok", "time": time.strftime("%Y-%m-%d %H:%M:%S"), "totalCodes": len(codes)}
 
 @app.get("/api/data")
-async def get_data(
-    baseline: float = Query(default=0.8, ge=0.1),
-    max_results: int = Query(default=2000, le=5000),
-):
-    """全市场A股实时PE比值数据"""
-    return get_cached_or_fetch(min_ratio=baseline, max_results=max_results)
+async def get_data():
+    """全市场A股实时PE比值数据 — 返回全部，前端做筛选"""
+    return get_cached_or_fetch()
 
 if __name__ == "__main__":
     import uvicorn
