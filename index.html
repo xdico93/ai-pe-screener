@@ -434,8 +434,8 @@ async function loadData(forceRefresh) {
   try {
     // 优先尝试实时后端API，降级到静态data.json
     const urls = forceRefresh
-      ? [`${BACKEND_URL}?baseline=0.8&max=5000&t=${Date.now()}`, `${FALLBACK_URL}?t=${Date.now()}`]
-      : [BACKEND_URL + '?baseline=0.8&max=5000', FALLBACK_URL];
+      ? [`${BACKEND_URL}?t=${Date.now()}`, `${FALLBACK_URL}?t=${Date.now()}`]
+      : [BACKEND_URL, FALLBACK_URL];
 
     if (forceRefresh) { localStorage.removeItem(CACHE_KEY); }
 
