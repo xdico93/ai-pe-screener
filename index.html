@@ -453,6 +453,9 @@ async function loadData(forceRefresh) {
 
     STOCK_DATA = json.data;
     META = json.meta || {};
+
+    // 浏览器端实时计算 Serenity 评分（6ms/111只）
+    try { Serenity.scoreAll(STOCK_DATA); } catch(e) { console.warn('Serenity:', e); }
     initSectors();
 
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(json)); } catch(e) {}
@@ -476,6 +479,7 @@ async function loadData(forceRefresh) {
       try {
         const json = JSON.parse(cached);
         STOCK_DATA = json.data; META = json.meta || {};
+        try { Serenity.scoreAll(STOCK_DATA); } catch(e) {}
         initSectors();
         document.getElementById('loadingView').style.display = 'none';
         document.getElementById('updateTime').textContent = '缓存 · 离线模式';
@@ -932,4 +936,5 @@ function toast(msg) {
 loadData(false);
 </script>
 </body>
+<script src="serenity.js"></script>
 </html>
