@@ -365,7 +365,7 @@ body {
     <span class="ratio-preset" data-ratio="1.5" onclick="setMinRatio(this,1.5)">1.5</span>
     <span class="ratio-preset" data-ratio="2.0" onclick="setMinRatio(this,2.0)">2.0</span>
     <span class="ratio-preset" data-ratio="3.0" onclick="setMinRatio(this,3.0)">3.0</span>
-    <input class="ratio-custom" id="ratioCustom" placeholder="自定义" oninput="onCustomRatio()" type="number" step="0.1" min="0.1">
+    <input class="ratio-custom" id="ratioCustom" placeholder="自定义" oninput="onCustomRatio()" type="text" inputmode="decimal">
   </div>
 </div>
 
@@ -435,7 +435,16 @@ async function loadData(forceRefresh) {
       localStorage.removeItem(CACHE_KEY);
     }
 
-    const resp = await fetch(url, { cache: forceRefresh ? 'no-cache' : 'default' });
+    // 15秒超时防卡死
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+
+    const resp = await fetch(url, {
+      cache: forceRefresh ? 'no-cache' : 'default',
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
 
     const json = await resp.json();
@@ -452,7 +461,6 @@ async function loadData(forceRefresh) {
     document.getElementById('updateTime').textContent = upStr + ' · ' + STOCK_DATA.length + '只';
     btn.textContent = forceRefresh ? '已更新' : '更新数据';
 
-    // Reset
     minRatio = META.baselineRatio || 1.0;
     selectedSectors = new Set();
     activeSectorPage = 0;
@@ -473,10 +481,13 @@ async function loadData(forceRefresh) {
       } catch(e2) { showEmpty('数据加载失败，请检查网络'); }
     } else { showEmpty('数据加载失败，请检查网络'); }
     btn.textContent = '重试';
-  }
-  btn.disabled = false;
-  if (btn.textContent === '已更新') {
-    setTimeout(() => { btn.textContent = '更新数据'; }, 3000);
+  } finally {
+    btn.disabled = false;
+    if (btn.textContent === '已更新') {
+      setTimeout(() => { btn.textContent = '更新数据'; }, 3000);
+    } else if (btn.textContent === '更新中...') {
+      btn.textContent = '重试';
+    }
   }
 }
 
@@ -624,12 +635,15 @@ function setMinRatio(el, val) {
 }
 
 function onCustomRatio() {
-  const v = parseFloat(document.getElementById('ratioCustom').value);
+  const input = document.getElementById('ratioCustom');
+  const v = parseFloat(input.value);
   if (!isNaN(v) && v >= 0.1) {
     minRatio = v;
     document.querySelectorAll('.ratio-preset').forEach(p => p.classList.remove('on'));
-    render();
+  } else if (!isNaN(v) && v > 0 && v < 0.1) {
+    minRatio = 0.1;
   }
+  render();  // 始终触发实时刷新
 }
 
 function resetRatioUI() {
@@ -769,6 +783,64 @@ function openDetail(code) {
     const sc = serenityClass(ser.score);
     const sl = serenityLabel(ser.score);
     const scColor = ser.score >= 85 ? '#34c759' : ser.score >= 70 ? '#007aff' : ser.score >= 55 ? '#ff9500' : '#ff3b30';
+
+    // Dimensions bars
+    let dimsHTML = '';
+    const dimNames = {
+      demand_inflection:'需求拐点',chokepoint_severity:'瓶颈稀缺',evidence_quality:'证据质量',
+      supplier_concentration:'供应商集中',expansion_difficulty:'扩产难度',valuation_disconnect:'估值偏离',
+      architecture_coupling:'架构耦合',catalyst_timing:'催化剂时机'
+    };
+    const penNames = {
+      dilution_financing:'稀释融资',governance:'公司治理',geopolitics:'地缘政治',liquidity:'流动性',
+      hype_risk:'炒作风险',accounting_quality:'会计质量',cyclicality:'周期性',alternative_design_risk:'替代方案'
+    };
+    if (ser.dimensions) {
+      dimsHTML = '<div style="margin-top:8px;font-size:10px;font-weight:600;color:var(--sub)">正向维度</div>';
+      Object.entries(ser.dimensions.positive||{}).forEach(([k,v])=>{
+        const pct = (v/5*100)+'%';
+        const barColor = v>=4?'#34c759':v>=3?'#007aff':v>=2?'#ff9500':'#d2d2d7';
+        dimsHTML += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+          <span style="width:60px;font-size:10px;text-align:right;color:var(--sub)">${dimNames[k]||k}</span>
+          <div style="flex:1;height:4px;border-radius:2px;background:rgba(0,0,0,0.06);overflow:hidden">
+            <div style="width:${pct};height:100%;border-radius:2px;background:${barColor}"></div>
+          </div>
+          <span style="font-size:10px;width:12px;text-align:center;font-weight:600;color:${barColor}">${v}</span>
+        </div>`;
+      });
+      dimsHTML += '<div style="margin-top:8px;font-size:10px;font-weight:600;color:var(--sub)">风险因子</div>';
+      Object.entries(ser.dimensions.penalties||{}).forEach(([k,v])=>{
+        if (v === 0) return;
+        const pct = (v/5*100)+'%';
+        const barColor = v>=4?'#ff3b30':v>=3?'#ff9500':'#d2d2d7';
+        dimsHTML += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+          <span style="width:60px;font-size:10px;text-align:right;color:var(--sub)">${penNames[k]||k}</span>
+          <div style="flex:1;height:4px;border-radius:2px;background:rgba(0,0,0,0.06);overflow:hidden">
+            <div style="width:${pct};height:100%;border-radius:2px;background:${barColor}"></div>
+          </div>
+          <span style="font-size:10px;width:12px;text-align:center;font-weight:600;color:${barColor}">${v}</span>
+        </div>`;
+      });
+    }
+
+    // Analysis section
+    let analysisHTML = '';
+    if (ser.analysis) {
+      const a = ser.analysis;
+      analysisHTML = `<div style="margin-top:8px;font-size:10px;font-weight:600;color:var(--sub)">产业链分析</div>`;
+      if (a.chain_position) analysisHTML += `<div style="font-size:11px;color:var(--sub);margin:2px 0 6px">${a.chain_position}</div>`;
+      if (a.competitive_moat) analysisHTML += `<div style="font-size:11px;padding:6px 8px;background:rgba(52,199,89,0.06);border-radius:8px;margin:4px 0">🏰 ${a.competitive_moat}</div>`;
+      if (a.demand_driver) analysisHTML += `<div style="font-size:11px;padding:6px 8px;background:rgba(0,122,255,0.05);border-radius:8px;margin:4px 0">📈 ${a.demand_driver}</div>`;
+      if (a.risk_factors && a.risk_factors.length) {
+        analysisHTML += `<div style="font-size:11px;font-weight:600;color:var(--sub);margin:8px 0 4px">⚠️ 风险因素</div>`;
+        a.risk_factors.forEach(rf => {
+          analysisHTML += `<div style="font-size:11px;padding:3px 8px;margin:2px 0;border-left:2px solid var(--red);color:var(--sub)">${rf}</div>`;
+        });
+      }
+      if (a.catalyst) analysisHTML += `<div style="font-size:11px;padding:6px 8px;background:rgba(255,149,0,0.06);border-radius:8px;margin:4px 0">⚡ ${a.catalyst}</div>`;
+      if (a.valuation_note) analysisHTML += `<div style="font-size:11px;padding:6px 8px;background:rgba(94,92,230,0.05);border-radius:8px;margin:4px 0">💎 ${a.valuation_note}</div>`;
+    }
+
     serenityHTML = `
     <div class="serenity-section">
       <h4>&#128300; 瓶颈分析</h4>
@@ -779,6 +851,8 @@ function openDetail(code) {
       <div class="serenity-score-bar">
         <div class="serenity-score-fill" style="width:${ser.score}%;background:linear-gradient(90deg,#ff3b30,#ff9500,#34c759,#007aff)"></div>
       </div>
+      ${dimsHTML}
+      ${analysisHTML}
       ${ser.summary ? `<div class="serenity-summary">${ser.summary}</div>` : ''}
       ${ser.flags && ser.flags.length ? `<div class="serenity-flags">${ser.flags.map(f=>`<span class="serenity-flag">${f}</span>`).join('')}</div>` : ''}
     </div>`;
