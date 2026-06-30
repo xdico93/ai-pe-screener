@@ -440,7 +440,7 @@ async function loadData(forceRefresh) {
     if (forceRefresh) { localStorage.removeItem(CACHE_KEY); }
 
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), forceRefresh ? 30000 : 20000);
+    const timer = setTimeout(() => ctrl.abort(), forceRefresh ? 90000 : 60000);
 
     let json = null;
     let sourceLabel = '';
@@ -454,7 +454,7 @@ async function loadData(forceRefresh) {
         const candidate = await resp.json();
         if (candidate.data && Array.isArray(candidate.data)) {
           json = candidate;
-          sourceLabel = url.includes('localhost') || url.includes('backend') ? ' · 实时' : '';
+          sourceLabel = url.includes('localhost') || url.includes('onrender.com') || url.includes('render.com') ? ' · 实时' : '';
           break;
         }
       } catch(e) { continue; }
@@ -478,7 +478,7 @@ async function loadData(forceRefresh) {
     btn.textContent = forceRefresh ? '已更新' : '更新数据';
 
     if (isFirstLoad) {
-      minRatio = META.baselineRatio || 1.0;
+      minRatio = META.baselineRatio || 0.8;
       selectedSectors = new Set();
       activeSectorPage = 0;
     }
