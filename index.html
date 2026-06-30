@@ -423,7 +423,8 @@ async function loadData(forceRefresh) {
   const btn = document.getElementById('btnRefresh');
   btn.disabled = true; btn.textContent = '更新中...';
 
-  if (!STOCK_DATA.length) {
+  const isFirstLoad = !STOCK_DATA.length;
+  if (isFirstLoad) {
     document.getElementById('loadingView').style.display = 'block';
     document.getElementById('cardList').innerHTML = '';
   }
@@ -461,9 +462,11 @@ async function loadData(forceRefresh) {
     document.getElementById('updateTime').textContent = upStr + ' · ' + STOCK_DATA.length + '只';
     btn.textContent = forceRefresh ? '已更新' : '更新数据';
 
-    minRatio = META.baselineRatio || 1.0;
-    selectedSectors = new Set();
-    activeSectorPage = 0;
+    if (isFirstLoad) {
+      minRatio = META.baselineRatio || 1.0;
+      selectedSectors = new Set();
+      activeSectorPage = 0;
+    }
     resetRatioUI();
     render();
   } catch(err) {
@@ -521,6 +524,7 @@ function showEmpty(msg) {
 let minRatio = 0.8;
 let selectedSectors = new Set();
 let searchQuery = '';
+let searchTimer = null;
 let sortKey = 'ratio';
 let sortAsc = false;
 let sectorFullOpen = false;
@@ -667,7 +671,9 @@ function filterData() {
     // Search
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      if (!s.code.includes(q) && !s.name.toLowerCase().includes(q)) return false;
+      const code = String(s.code || '');
+      const name = (s.name || '').toLowerCase();
+      if (!code.includes(q) && !name.includes(q)) return false;
     }
     return true;
   }).sort((a,b) => {
@@ -721,10 +727,13 @@ function render() {
   if (data.length === 0) {
     document.getElementById('cardList').innerHTML = '';
     document.getElementById('emptyState').style.display = 'block';
-    document.getElementById('emptyMsg').textContent =
-      minRatio > (META?.baselineRatio||0.8)
-        ? `PE比值 >= ${minRatio} 的标的为0，尝试降低阈值`
-        : '没有符合条件的标的';
+    if (searchQuery) {
+      document.getElementById('emptyMsg').textContent = `未找到包含「${searchQuery}」的标的`;
+    } else if (minRatio > (META?.baselineRatio||0.8)) {
+      document.getElementById('emptyMsg').textContent = `PE比值 >= ${minRatio} 的标的为0，尝试降低阈值`;
+    } else {
+      document.getElementById('emptyMsg').textContent = '没有符合条件的标的';
+    }
   } else {
     document.getElementById('emptyState').style.display = 'none';
     document.getElementById('cardList').innerHTML = data.map(s => {
@@ -768,8 +777,11 @@ function setSort(k) {
   render();
 }
 function doSearch() {
-  searchQuery = document.getElementById('searchInput').value.trim();
-  render();
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    searchQuery = document.getElementById('searchInput').value.trim();
+    render();
+  }, 150);
 }
 
 // ════════════════════ DETAIL SHEET ════════════════════
