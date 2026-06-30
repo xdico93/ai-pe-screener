@@ -8,160 +8,317 @@
 <title>AI PE筛选器</title>
 <style>
 :root {
-  --primary: #1e3a5f; --accent: #3b82f6; --bg: #f0f4f8;
-  --card: #fff; --text: #1e293b; --sub: #64748b; --border: #e2e8f0;
-  --green: #16a34a; --blue: #2563eb; --amber: #d97706;
-  --red: #ef4444; --radius: 12px; --safe-bottom: env(safe-area-inset-bottom, 16px);
+  --bg: #f5f5f7;
+  --card: rgba(255,255,255,0.88);
+  --text: #1d1d1f;
+  --sub: #86868b;
+  --border: rgba(0,0,0,0.06);
+  --primary: #0071e3;
+  --accent: #5e5ce6;
+  --green: #34c759;
+  --blue: #007aff;
+  --amber: #ff9500;
+  --red: #ff3b30;
+  --radius: 16px;
+  --radius-sm: 12px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
+  --shadow-md: 0 2px 12px rgba(0,0,0,0.06);
+  --shadow-lg: 0 8px 30px rgba(0,0,0,0.1);
+  --safe-bottom: env(safe-area-inset-bottom, 16px);
+  --safe-top: env(safe-area-inset-top, 0px);
 }
 * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 body {
-  font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","PingFang SC","Microsoft YaHei",sans-serif;
   background: var(--bg); color: var(--text); line-height:1.5;
-  -webkit-font-smoothing: antialiased; max-width: 480px; margin:0 auto;
-  min-height: 100vh; padding-bottom: calc(60px + var(--safe-bottom));
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  max-width: 480px; margin:0 auto; min-height: 100vh;
+  padding-bottom: calc(72px + var(--safe-bottom));
 }
-/* header */
+
+/* ── Header (macOS frosted) ── */
 .header {
   position: sticky; top:0; z-index:100;
-  background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
-  color:#fff; padding:12px 16px; padding-top: max(12px, env(safe-area-inset-top));
+  background: rgba(29,29,31,0.92);
+  backdrop-filter: saturate(180%) blur(25px);
+  -webkit-backdrop-filter: saturate(180%) blur(25px);
+  color:#fff; padding:12px 16px;
+  padding-top: max(12px, var(--safe-top));
+  border-bottom: 1px solid rgba(255,255,255,0.1);
 }
 .header-row { display:flex; justify-content:space-between; align-items:center; }
-.header h1 { font-size:17px; font-weight:700; }
-.header .sub { font-size:11px; opacity:.75; margin-top:2px; }
-.header .uptime { font-size:10px; opacity:.6; margin-top:1px; }
+.header h1 { font-size:17px; font-weight:700; letter-spacing:-0.02em; }
+.header .sub { font-size:11px; opacity:.65; margin-top:1px; font-weight:400; }
+.header .uptime { font-size:10px; opacity:.5; margin-top:1px; }
 .header .actions { display:flex; gap:8px; }
 .btn-icon {
-  width:32px;height:32px;border-radius:50%;border:none;
-  background:rgba(255,255,255,.15);color:#fff;font-size:16px;
-  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  width:32px; height:32px; border-radius:50%; border:none;
+  background:rgba(255,255,255,.12); color:#fff; font-size:15px;
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
+  transition: background .2s;
 }
-/* stats bar */
-.stats-bar {
-  display:flex; gap:8px; padding:12px 16px; overflow-x:auto;
-  -webkit-overflow-scrolling:touch; scrollbar-width:none;
+.btn-icon:active { background:rgba(255,255,255,.22); }
+
+/* ── Sector Filter Panel ── */
+.sector-panel { padding:10px 16px; }
+.sector-hot {
+  display:flex; flex-wrap:wrap; gap:6px;
+  max-height: 96px; overflow:hidden; transition:max-height .4s ease;
 }
-.stats-bar::-webkit-scrollbar { display:none; }
-.stat-chip {
-  flex-shrink:0; background:var(--card); border-radius:20px;
-  padding:6px 14px; font-size:12px; color:var(--sub);
-  box-shadow:0 1px 3px rgba(0,0,0,.06); cursor:pointer;
-  transition: all .2s; white-space:nowrap;
+.sector-hot.expanded { max-height:2000px; }
+.sector-chip {
+  padding:4px 12px; border-radius:16px; font-size:11px; font-weight:500;
+  border:1px solid var(--border); background:var(--card);
+  cursor:pointer; transition:all .2s; white-space:nowrap;
+  box-shadow: var(--shadow-sm);
 }
-.stat-chip .n { font-weight:700; color:var(--primary); font-size:15px; }
-.stat-chip.active { background:var(--primary); color:#fff; }
-.stat-chip.active .n { color:#fff; }
-/* search */
-.search-wrap { padding:0 16px 10px; }
+.sector-chip.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+.sector-chip.ai {
+  border-color: rgba(255,149,0,0.3);
+  background: linear-gradient(135deg, rgba(255,149,0,0.08), rgba(255,59,48,0.04));
+  color: #cc7a00;
+}
+.sector-chip.ai.active {
+  background: linear-gradient(135deg, #ff9500, #ff3b30); color:#fff; border-color:transparent;
+}
+.sector-chip.ai::after { content:" ★"; font-size:9px; opacity:.7; }
+.sector-expand {
+  margin-top:8px; font-size:11px; color:var(--primary); cursor:pointer;
+  display:flex; align-items:center; gap:4px; font-weight:500;
+}
+.sector-expand:hover { text-decoration:underline; }
+/* Sector full list modal */
+.sector-full {
+  display:none; padding:0 16px 16px;
+}
+.sector-full.show { display:block; }
+.sector-search {
+  width:100%; padding:8px 12px; border:1px solid var(--border);
+  border-radius:12px; font-size:13px; background:rgba(255,255,255,0.7);
+  outline:none; color:var(--text); margin-bottom:8px;
+}
+.sector-search:focus { border-color:var(--primary); box-shadow:0 0 0 3px rgba(0,113,227,0.12); }
+.sector-list { max-height:260px; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+.sector-item {
+  display:flex; align-items:center; padding:8px 0; font-size:13px;
+  border-bottom:1px solid rgba(0,0,0,0.03); cursor:pointer;
+}
+.sector-item .cb {
+  width:18px; height:18px; border-radius:5px; border:1.5px solid var(--border);
+  margin-right:10px; flex-shrink:0; display:flex; align-items:center;
+  justify-content:center; transition:all .2s; font-size:11px; color:#fff;
+}
+.sector-item .cb.on { background:var(--primary); border-color:var(--primary); }
+.sector-item .name { flex:1; font-weight:450; }
+.sector-item .count { font-size:11px; color:var(--sub); margin-left:6px; }
+.sector-item .ai-badge {
+  font-size:9px; background: linear-gradient(135deg, #ff9500, #ff3b30);
+  color:#fff; padding:1px 5px; border-radius:6px; margin-left:6px;
+}
+.sector-pager { display:flex; gap:8px; margin-top:8px; justify-content:center; }
+.sector-pager button {
+  padding:4px 12px; border-radius:10px; border:1px solid var(--border);
+  background:var(--card); font-size:12px; cursor:pointer;
+}
+.sector-pager button:disabled { opacity:.4; cursor:not-allowed; }
+.sector-actions { display:flex; gap:8px; margin-bottom:8px; }
+.sector-actions button {
+  font-size:11px; padding:3px 10px; border-radius:10px;
+  border:1px solid var(--border); background:transparent; color:var(--sub); cursor:pointer;
+}
+
+/* ── PE Ratio Control ── */
+.ratio-ctrl { padding:6px 16px 10px; }
+.ratio-label { font-size:11px; color:var(--sub); margin-bottom:6px; font-weight:500; }
+.ratio-presets { display:flex; gap:6px; flex-wrap:wrap; }
+.ratio-preset {
+  padding:5px 14px; border-radius:18px; font-size:12px; font-weight:600;
+  border:1px solid var(--border); background:var(--card); cursor:pointer;
+  transition:all .2s; box-shadow:var(--shadow-sm);
+}
+.ratio-preset.on { background:var(--primary); color:#fff; border-color:var(--primary); }
+.ratio-custom {
+  width:70px; padding:5px 10px; border-radius:18px; font-size:12px; font-weight:600;
+  border:1px solid var(--border); background:var(--card); outline:none;
+  text-align:center; color:var(--text);
+}
+.ratio-custom:focus { border-color:var(--primary); box-shadow:0 0 0 3px rgba(0,113,227,0.12); }
+
+/* ── Search ── */
+.search-wrap { padding:0 16px 8px; }
 .search-box {
   display:flex; align-items:center; background:var(--card);
-  border-radius:24px; padding:10px 16px; gap:8px;
-  box-shadow:0 1px 3px rgba(0,0,0,.06);
+  border-radius:20px; padding:10px 16px; gap:8px;
+  box-shadow:var(--shadow-sm);
 }
 .search-box input {
-  flex:1; border:none; outline:none; font-size:14px; background:transparent;
-  color:var(--text);
+  flex:1; border:none; outline:none; font-size:14px; background:transparent; color:var(--text);
 }
-.search-box input::placeholder { color:#94a3b8; }
-/* card list */
+.search-box input::placeholder { color:#b0b0b8; }
+
+/* ── Filter Chips ── */
+.filter-wrap { padding:8px 16px 6px; display:flex; gap:8px; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.filter-chip {
+  flex-shrink:0; padding:5px 14px; border-radius:18px; font-size:11px; font-weight:500;
+  border:1px solid var(--border); background:var(--card); cursor:pointer;
+  transition:all .2s; box-shadow:var(--shadow-sm);
+}
+.filter-chip.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+/* ── Card List ── */
 .list { padding:0 12px; }
 .card {
-  background:var(--card); border-radius:var(--radius); margin-bottom:10px;
-  padding:14px; box-shadow:0 1px 3px rgba(0,0,0,.06);
-  cursor:pointer; transition:transform .15s; position:relative;
-  overflow:hidden;
+  background:var(--card); border-radius:var(--radius); margin-bottom:8px;
+  padding:14px 16px; box-shadow:var(--shadow-sm);
+  cursor:pointer; transition:all .2s cubic-bezier(.25,.1,.25,1);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border:1px solid rgba(0,0,0,0.04);
 }
-.card:active { transform:scale(.98); }
+.card:active { transform:scale(.985); box-shadow:var(--shadow-md); }
 .card-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }
-.card-code { font-size:13px; color:var(--sub); }
-.card-name { font-size:16px; font-weight:700; }
-.card-ratio {
-  font-size:22px; font-weight:800; text-align:right;
-}
+.card-code { font-size:12px; color:var(--sub); font-weight:500; }
+.card-name { font-size:16px; font-weight:700; letter-spacing:-0.01em; }
+.card-right { text-align:right; }
+.card-ratio { font-size:20px; font-weight:800; letter-spacing:-0.03em; }
 .ratio-high { color:var(--green); }
 .ratio-mid { color:var(--blue); }
 .ratio-low { color:var(--amber); }
+.serenity-badge {
+  display:inline-flex; align-items:center; gap:3px;
+  font-size:10px; padding:2px 7px; border-radius:10px; margin-top:3px;
+  font-weight:600;
+}
+.serenity-top { background:#dcf5e6; color:#1a7a3a; }
+.serenity-high { background:#dbeafe; color:#1e5ac4; }
+.serenity-track { background:#fff3e0; color:#b87600; }
 .card-metrics {
   display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;
-  padding:10px 0; border-top:1px solid var(--border);
-  border-bottom:1px solid var(--border);
+  padding:10px 0; border-top:1px solid rgba(0,0,0,0.04);
+  border-bottom:1px solid rgba(0,0,0,0.04);
 }
 .metric-label { font-size:10px; color:var(--sub); margin-bottom:2px; }
 .metric-value { font-size:14px; font-weight:600; }
-.card-tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:10px; }
+.card-tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
 .tag {
   font-size:10px; padding:2px 8px; border-radius:10px;
-  background:#e0e7ff; color:#3730a3; white-space:nowrap;
+  background:rgba(0,113,227,0.08); color:var(--primary); white-space:nowrap;
+  font-weight:500;
 }
-/* loading */
-.loading {
-  text-align:center; padding:60px 20px; color:var(--sub);
+.tag-ai {
+  background: linear-gradient(135deg, rgba(255,149,0,0.12), rgba(255,59,48,0.06));
+  color:#cc5500; font-weight:600;
 }
+
+/* ── Loading ── */
+.loading { text-align:center; padding:60px 20px; color:var(--sub); }
 .spinner {
-  width:36px; height:36px; border:3px solid var(--border);
-  border-top-color:var(--accent); border-radius:50%;
-  animation:spin .8s linear infinite; margin:0 auto 16px;
+  width:32px; height:32px; border:3px solid rgba(0,0,0,0.06);
+  border-top-color:var(--primary); border-radius:50%;
+  animation:spin .7s linear infinite; margin:0 auto 16px;
 }
 @keyframes spin { to { transform:rotate(360deg); } }
-/* empty state */
-.empty {
-  text-align:center; padding:60px 20px; color:var(--sub);
-}
-.empty .icon { font-size:48px; margin-bottom:12px; }
-/* detail sheet */
+
+/* ── Empty ── */
+.empty { text-align:center; padding:60px 20px; color:var(--sub); }
+.empty .icon { font-size:40px; margin-bottom:10px; opacity:.7; }
+
+/* ── Detail Sheet ── */
 .overlay {
-  position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:200;
+  position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:200;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
   display:flex; align-items:flex-end; justify-content:center;
   opacity:0; pointer-events:none; transition:opacity .25s;
 }
 .overlay.show { opacity:1; pointer-events:auto; }
 .sheet {
-  background:#fff; border-radius:20px 20px 0 0; width:100%; max-width:480px;
-  max-height:85vh; overflow-y:auto; padding:20px; padding-bottom:calc(20px + var(--safe-bottom));
-  transform:translateY(100%); transition:transform .3s cubic-bezier(.4,0,.2,1);
+  background:rgba(255,255,255,0.97);
+  backdrop-filter: saturate(180%) blur(30px);
+  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  border-radius:20px 20px 0 0; width:100%; max-width:480px;
+  max-height:85vh; overflow-y:auto; padding:20px;
+  padding-bottom:calc(20px + var(--safe-bottom));
+  transform:translateY(100%);
+  transition:transform .35s cubic-bezier(.25,.1,.25,1);
+  box-shadow:0 -4px 30px rgba(0,0,0,0.1);
 }
 .overlay.show .sheet { transform:translateY(0); }
-.sheet-handle { width:36px; height:4px; background:#cbd5e1; border-radius:2px; margin:0 auto 16px; }
-.sheet-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; }
-.sheet-title { font-size:20px; font-weight:700; }
+.sheet-handle { width:32px; height:4px; background:#d2d2d7; border-radius:2px; margin:0 auto 14px; }
+.sheet-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; }
+.sheet-title { font-size:20px; font-weight:700; letter-spacing:-0.02em; }
 .sheet-code { font-size:13px; color:var(--sub); }
-.sheet-close { font-size:24px; background:none; border:none; cursor:pointer; color:var(--sub); padding:4px; }
-.sheet-ratio { font-size:36px; font-weight:800; margin:16px 0; }
-.sheet-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:16px 0; }
-.sheet-item { background:#f8fafc; border-radius:10px; padding:12px; }
-.sheet-item .l { font-size:11px; color:var(--sub); }
-.sheet-item .v { font-size:18px; font-weight:700; margin-top:4px; }
-/* filter chips */
-.filter-wrap { padding:12px 16px; display:flex; gap:8px; overflow-x:auto; -webkit-overflow-scrolling:touch; }
-.filter-chip {
-  flex-shrink:0; padding:6px 14px; border-radius:18px; font-size:12px;
-  border:1px solid var(--border); background:var(--card); cursor:pointer;
-  transition:all .2s; white-space:nowrap;
+.sheet-close {
+  font-size:22px; background:none; border:none; cursor:pointer;
+  color:var(--sub); padding:4px; width:32px; height:32px;
+  border-radius:50%; display:flex; align-items:center; justify-content:center;
 }
-.filter-chip.on { background:var(--accent); color:#fff; border-color:var(--accent); }
-/* toast */
+.sheet-close:active { background:rgba(0,0,0,0.06); }
+.sheet-ratio { font-size:36px; font-weight:800; margin:12px 0; letter-spacing:-0.03em; }
+.sheet-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:14px 0; }
+.sheet-item {
+  background:rgba(0,0,0,0.02); border-radius:var(--radius-sm);
+  padding:12px; border:1px solid rgba(0,0,0,0.03);
+}
+.sheet-item .l { font-size:10px; color:var(--sub); font-weight:500; }
+.sheet-item .v { font-size:17px; font-weight:700; margin-top:3px; }
+/* Serenity section in sheet */
+.serenity-section {
+  margin-top:16px; padding:16px; border-radius:var(--radius-sm);
+  background:rgba(0,0,0,0.015); border:1px solid rgba(0,0,0,0.04);
+}
+.serenity-section h4 {
+  font-size:13px; font-weight:700; margin-bottom:10px;
+  display:flex; align-items:center; gap:6px;
+}
+.serenity-score-bar {
+  height:6px; border-radius:3px; background:rgba(0,0,0,0.06); overflow:hidden; margin-bottom:8px;
+}
+.serenity-score-fill {
+  height:100%; border-radius:3px; transition:width .6s ease;
+  background: linear-gradient(90deg, #ff3b30, #ff9500, #ffcc00, #34c759, #007aff);
+}
+.serenity-score-num { font-size:22px; font-weight:800; display:inline; margin-right:6px; }
+.serenity-verdict { font-size:12px; display:inline; font-weight:600; }
+.serenity-summary { font-size:12px; color:var(--sub); margin-top:8px; line-height:1.6; }
+.serenity-flags { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
+.serenity-flag {
+  font-size:10px; padding:2px 8px; border-radius:10px;
+  background:rgba(255,59,48,0.08); color:var(--red); font-weight:500;
+}
+
+/* ── Toast ── */
 .toast {
   position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
-  background:rgba(0,0,0,.8); color:#fff; padding:10px 24px; border-radius:20px;
-  font-size:14px; z-index:999; opacity:0; pointer-events:none; transition:opacity .3s;
+  background:rgba(0,0,0,.82); color:#fff; padding:10px 22px;
+  border-radius:22px; font-size:13px; z-index:999;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  opacity:0; pointer-events:none; transition:opacity .25s;
+  white-space:pre-line; text-align:center;
 }
 .toast.show { opacity:1; }
-/* footer */
+
+/* ── Footer ── */
 .footer-bar {
   position:fixed; bottom:0; left:50%; transform:translateX(-50%);
-  width:100%; max-width:480px; background:var(--card);
-  border-top:1px solid var(--border); display:flex;
-  padding:8px 16px; padding-bottom:calc(8px + var(--safe-bottom));
-  gap:12px; z-index:100;
+  width:100%; max-width:480px;
+  background:rgba(255,255,255,0.92);
+  backdrop-filter: saturate(180%) blur(25px);
+  -webkit-backdrop-filter: saturate(180%) blur(25px);
+  border-top:1px solid rgba(0,0,0,0.06);
+  display:flex; padding:8px 16px;
+  padding-bottom:calc(8px + var(--safe-bottom)); gap:10px; z-index:100;
 }
 .footer-btn {
-  flex:1; padding:8px; border:none; border-radius:10px;
-  font-size:13px; font-weight:600; cursor:pointer; transition:opacity .2s;
+  flex:1; padding:10px; border:none; border-radius:20px;
+  font-size:13px; font-weight:600; cursor:pointer; transition:all .2s;
+  letter-spacing:-0.01em;
 }
-.footer-btn:active { opacity:.7; }
-.footer-btn:disabled { opacity:.5; cursor:not-allowed; }
+.footer-btn:active { transform:scale(.97); }
+.footer-btn:disabled { opacity:.45; cursor:not-allowed; transform:none; }
 .btn-primary { background:var(--primary); color:#fff; }
-.btn-outline { background:transparent; color:var(--primary); border:1.5px solid var(--primary); }
+.btn-outline {
+  background:transparent; color:var(--primary);
+  border:1.5px solid rgba(0,113,227,0.3);
+}
 </style>
 </head>
 <body>
@@ -170,24 +327,52 @@ body {
 <div class="header">
   <div class="header-row">
     <div>
-      <h1>🤖 AI PE筛选器</h1>
-      <div class="sub">PE(TTM)/动态PE &gt; 1.5</div>
+      <h1>AI PE Screener</h1>
+      <div class="sub">PE(TTM) / 动态PE 筛选</div>
       <div class="uptime" id="updateTime">加载中...</div>
     </div>
     <div class="actions">
-      <button class="btn-icon" onclick="shareApp()" title="分享">📤</button>
-      <button class="btn-icon" onclick="toggleFilters()" title="筛选">🔍</button>
+      <button class="btn-icon" onclick="shareApp()" title="分享">&#8599;</button>
     </div>
   </div>
 </div>
 
-<!-- Stats Bar -->
-<div class="stats-bar" id="statsBar"></div>
+<!-- Sector Filter Panel -->
+<div class="sector-panel" id="sectorPanel">
+  <div class="sector-hot" id="sectorHot"></div>
+  <div class="sector-expand" id="sectorExpand" onclick="toggleSectorFull()" style="display:none">
+    <span id="sectorExpandIcon">&#9660;</span> <span id="sectorExpandText">展开全部板块</span>
+  </div>
+  <div class="sector-full" id="sectorFull">
+    <div class="sector-actions">
+      <button onclick="selectAllSectors()">全选</button>
+      <button onclick="clearSectors()">清空</button>
+    </div>
+    <input class="sector-search" id="sectorSearch" placeholder="搜索板块..." oninput="renderSectorList()">
+    <div class="sector-list" id="sectorList"></div>
+    <div class="sector-pager" id="sectorPager"></div>
+  </div>
+  <!-- Selected sector chips -->
+  <div id="selectedSectorChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
+</div>
+
+<!-- PE Ratio Control -->
+<div class="ratio-ctrl">
+  <div class="ratio-label">PE(TTM) / 动态PE 最低比值</div>
+  <div class="ratio-presets">
+    <span class="ratio-preset on" data-ratio="0.8" onclick="setMinRatio(this,0.8)">0.8</span>
+    <span class="ratio-preset" data-ratio="1.0" onclick="setMinRatio(this,1.0)">1.0</span>
+    <span class="ratio-preset" data-ratio="1.5" onclick="setMinRatio(this,1.5)">1.5</span>
+    <span class="ratio-preset" data-ratio="2.0" onclick="setMinRatio(this,2.0)">2.0</span>
+    <span class="ratio-preset" data-ratio="3.0" onclick="setMinRatio(this,3.0)">3.0</span>
+    <input class="ratio-custom" id="ratioCustom" placeholder="自定义" oninput="onCustomRatio()" type="number" step="0.1" min="0.1">
+  </div>
+</div>
 
 <!-- Search -->
 <div class="search-wrap">
   <div class="search-box">
-    <span style="font-size:14px">🔎</span>
+    <span style="font-size:14px;opacity:.5">&#128269;</span>
     <input type="text" id="searchInput" placeholder="搜索代码或名称..." oninput="doSearch()">
     <span id="searchCount" style="font-size:12px;color:var(--sub);display:none"></span>
   </div>
@@ -205,13 +390,13 @@ body {
   <div>正在加载数据...</div>
 </div>
 
-<!-- Empty State -->
+<!-- Empty -->
 <div class="empty" id="emptyState" style="display:none">
-  <div class="icon">📭</div>
-  <div>没有符合条件的标的</div>
+  <div class="icon">&#128123;</div>
+  <div id="emptyMsg">没有符合条件的标的</div>
 </div>
 
-<!-- Detail Sheet -->
+<!-- Sheet -->
 <div class="overlay" id="overlay" onclick="if(event.target===this)closeSheet()">
   <div class="sheet" id="sheet"></div>
 </div>
@@ -221,28 +406,23 @@ body {
 
 <!-- Footer -->
 <div class="footer-bar">
-  <button class="footer-btn btn-outline" onclick="exportData()">📋 导出数据</button>
-  <button class="footer-btn btn-primary" id="btnRefresh" onclick="loadData(true)">🔄 更新数据</button>
+  <button class="footer-btn btn-outline" onclick="exportData()">导出 CSV</button>
+  <button class="footer-btn btn-primary" id="btnRefresh" onclick="loadData(true)">更新数据</button>
 </div>
 
 <script>
-// ══════════════════════════════════════════════
-// Dynamic data loader — fetches data.json
-// ══════════════════════════════════════════════
+// ════════════════════ DATA LOADER ════════════════════
 const DATA_URL = 'https://xdico93.github.io/ai-pe-screener/data.json';
-const CACHE_KEY = 'aipescreener_data';
-const CACHE_TIME_KEY = 'aipescreener_ts';
+const CACHE_KEY = 'aipescreener_data_v3';
 
 let STOCK_DATA = [];
-let ALL_BOARDS = [];
-let dataMeta = null;
+let META = null;           // {allSectors, aiSectors, hotSectors, ...}
+let ALL_SECTORS = [];      // full sector list with counts
 
 async function loadData(forceRefresh) {
   const btn = document.getElementById('btnRefresh');
-  btn.disabled = true;
-  btn.textContent = '⏳ 更新中...';
+  btn.disabled = true; btn.textContent = '更新中...';
 
-  // Show loading if no cache
   if (!STOCK_DATA.length) {
     document.getElementById('loadingView').style.display = 'block';
     document.getElementById('cardList').innerHTML = '';
@@ -252,85 +432,225 @@ async function loadData(forceRefresh) {
     let url = DATA_URL;
     if (forceRefresh) {
       url += '?t=' + Date.now();
-      // Clear cache first
       localStorage.removeItem(CACHE_KEY);
-      localStorage.removeItem(CACHE_TIME_KEY);
     }
 
     const resp = await fetch(url, { cache: forceRefresh ? 'no-cache' : 'default' });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
 
     const json = await resp.json();
-    if (!json.data || !Array.isArray(json.data)) throw new Error('Invalid data format');
+    if (!json.data || !Array.isArray(json.data)) throw new Error('Invalid format');
 
     STOCK_DATA = json.data;
-    dataMeta = { updated: json.updated || '', count: json.count || json.data.length };
-    ALL_BOARDS = [...new Set(STOCK_DATA.flatMap(s => s.boards))].sort();
+    META = json.meta || {};
+    initSectors();
 
-    // Cache in localStorage
-    try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify(json));
-      localStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
-    } catch(e) { /* quota exceeded, ignore */ }
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(json)); } catch(e) {}
 
     document.getElementById('loadingView').style.display = 'none';
-    document.getElementById('updateTime').textContent =
-      dataMeta.updated ? '上次更新: ' + dataMeta.updated : '已加载最新数据';
-    btn.textContent = forceRefresh ? '✅ 已更新' : '🔄 更新数据';
-    toast(forceRefresh ? '数据已更新 (' + dataMeta.count + '条)' : '已加载 ' + dataMeta.count + ' 条');
+    const upStr = json.updated ? '上次更新: ' + json.updated : '最新数据';
+    document.getElementById('updateTime').textContent = upStr + ' · ' + STOCK_DATA.length + '只';
+    btn.textContent = forceRefresh ? '已更新' : '更新数据';
 
-    // Reset filters
-    activeBoard = null;
-    searchQuery = '';
-    document.getElementById('searchInput').value = '';
+    // Reset
+    minRatio = META.baselineRatio || 1.0;
+    selectedSectors = new Set();
+    activeSectorPage = 0;
+    resetRatioUI();
     render();
   } catch(err) {
     console.error('Load failed:', err);
-    // Try cached fallback
     const cached = localStorage.getItem(CACHE_KEY);
     if (cached) {
       try {
         const json = JSON.parse(cached);
-        STOCK_DATA = json.data;
-        dataMeta = { updated: json.updated || '', count: json.count };
-        ALL_BOARDS = [...new Set(STOCK_DATA.flatMap(s => s.boards))].sort();
+        STOCK_DATA = json.data; META = json.meta || {};
+        initSectors();
         document.getElementById('loadingView').style.display = 'none';
-        document.getElementById('updateTime').textContent =
-          '缓存数据 · ' + (dataMeta.updated || '离线模式');
-        toast('⚠️ 网络异常，使用本地缓存');
+        document.getElementById('updateTime').textContent = '缓存 · 离线模式';
+        toast('使用本地缓存');
         render();
-      } catch(e2) {
-        showEmpty('数据加载失败，请检查网络后重试');
-      }
-    } else {
-      showEmpty('数据加载失败，请检查网络后重试');
-    }
-    btn.textContent = '🔄 更新数据';
+      } catch(e2) { showEmpty('数据加载失败，请检查网络'); }
+    } else { showEmpty('数据加载失败，请检查网络'); }
+    btn.textContent = '重试';
   }
   btn.disabled = false;
-  if (btn.textContent === '✅ 已更新') {
-    setTimeout(() => { if (btn.textContent === '✅ 已更新') btn.textContent = '🔄 更新数据'; }, 3000);
+  if (btn.textContent === '已更新') {
+    setTimeout(() => { btn.textContent = '更新数据'; }, 3000);
   }
+}
+
+function initSectors() {
+  // Build sector list with counts from STOCK_DATA
+  const counter = {};
+  STOCK_DATA.forEach(s => {
+    (s.sectors||[]).forEach(sec => { counter[sec] = (counter[sec]||0) + 1; });
+  });
+  ALL_SECTORS = Object.entries(counter)
+    .sort((a,b) => b[1] - a[1])
+    .map(([name,count]) => ({name, count, isAi: isAiSector(name)}));
+}
+
+function isAiSector(name) {
+  const aiKw = ['cpo','光通信','存储芯片','液冷','算力','pcb','铜缆','先进封装','热管理',
+    '数据中心','华为算力','东数西算','ai','人工智能','芯片','半导体','光模块',
+    'hbm','硅光','服务器','gpu','封装','机器人'];
+  const nl = name.toLowerCase();
+  return aiKw.some(k => nl.includes(k));
 }
 
 function showEmpty(msg) {
   document.getElementById('loadingView').style.display = 'none';
   document.getElementById('emptyState').style.display = 'block';
-  document.getElementById('emptyState').innerHTML = '<div class="icon">⚠️</div><div>' + msg + '</div>';
+  document.getElementById('emptyMsg').textContent = msg;
   document.getElementById('updateTime').textContent = '连接失败';
 }
 
-// ════════════════════════ STATE ════════════════════════
-let activeBoard = null;
+// ════════════════════ STATE ════════════════════
+let minRatio = 0.8;
+let selectedSectors = new Set();
 let searchQuery = '';
 let sortKey = 'ratio';
 let sortAsc = false;
+let sectorFullOpen = false;
+let activeSectorPage = 0;
+const SECTOR_PAGE_SIZE = 20;
 
-// ════════════════════════ RENDER ════════════════════════
+// ════════════════════ SECTOR FILTER ════════════════════
+function toggleSectorFull() {
+  sectorFullOpen = !sectorFullOpen;
+  document.getElementById('sectorFull').classList.toggle('show', sectorFullOpen);
+  document.getElementById('sectorExpandIcon').textContent = sectorFullOpen ? '\u25B2' : '\u25BC';
+  document.getElementById('sectorExpandText').textContent = sectorFullOpen ? '收起' : '展开全部板块';
+  if (sectorFullOpen) renderSectorList();
+}
+
+function renderSectorList() {
+  if (!sectorFullOpen) return;
+  const q = (document.getElementById('sectorSearch').value||'').toLowerCase();
+  let filtered = ALL_SECTORS;
+  if (q) filtered = filtered.filter(s => s.name.toLowerCase().includes(q));
+
+  const totalPages = Math.ceil(filtered.length / SECTOR_PAGE_SIZE);
+  const start = activeSectorPage * SECTOR_PAGE_SIZE;
+  const page = filtered.slice(start, start + SECTOR_PAGE_SIZE);
+
+  document.getElementById('sectorList').innerHTML = page.map(s => `
+    <div class="sector-item" onclick="toggleSector('${s.name.replace(/'/g,"\\'")}')">
+      <div class="cb${selectedSectors.has(s.name)?' on':''}">${selectedSectors.has(s.name)?'&#10003;':''}</div>
+      <span class="name">${s.name}</span>
+      ${s.isAi?'<span class="ai-badge">AI</span>':''}
+      <span class="count">${s.count}</span>
+    </div>
+  `).join('');
+
+  // Pagination
+  let pagerHTML = '';
+  if (totalPages > 1) {
+    pagerHTML += `<button onclick="goSectorPage(${activeSectorPage-1})" ${activeSectorPage===0?'disabled':''}>上页</button>`;
+    pagerHTML += `<span style="font-size:12px;color:var(--sub);line-height:28px">${activeSectorPage+1}/${totalPages}</span>`;
+    pagerHTML += `<button onclick="goSectorPage(${activeSectorPage+1})" ${activeSectorPage>=totalPages-1?'disabled':''}>下页</button>`;
+  }
+  document.getElementById('sectorPager').innerHTML = pagerHTML;
+}
+
+function goSectorPage(n) { activeSectorPage = n; renderSectorList(); }
+
+function toggleSector(name) {
+  if (selectedSectors.has(name)) selectedSectors.delete(name);
+  else selectedSectors.add(name);
+  renderSectorList();
+  renderSelectedChips();
+  render();
+}
+
+function selectAllSectors() {
+  ALL_SECTORS.forEach(s => selectedSectors.add(s.name));
+  renderSectorList(); renderSelectedChips(); render();
+}
+
+function clearSectors() {
+  selectedSectors.clear();
+  renderSectorList(); renderSelectedChips(); render();
+}
+
+function removeSector(name) {
+  selectedSectors.delete(name);
+  renderSectorList(); renderSelectedChips(); render();
+}
+
+function renderSelectedChips() {
+  if (selectedSectors.size === 0) {
+    document.getElementById('selectedSectorChips').innerHTML = '';
+    return;
+  }
+  document.getElementById('selectedSectorChips').innerHTML =
+    Array.from(selectedSectors).slice(0,15).map(name =>
+      `<span class="tag" style="cursor:pointer" onclick="removeSector('${name.replace(/'/g,"\\'")}')">${name} &times;</span>`
+    ).join('') + (selectedSectors.size > 15 ? `<span class="tag">+${selectedSectors.size-15}更多</span>` : '');
+}
+
+function renderHotSectors() {
+  const hot = META.hotSectors || ALL_SECTORS.slice(0,30).map(s=>s.name);
+  const totalCount = STOCK_DATA.length;
+  const totalHtml = `<span class="sector-chip${selectedSectors.size===0?' active':''}" onclick="clearSectors()">全部 ${totalCount}</span>`;
+
+  const chips = hot.map(name => {
+    const cnt = ALL_SECTORS.find(s=>s.name===name)?.count || 0;
+    if (cnt === 0) return '';
+    const isAi = isAiSector(name);
+    const active = selectedSectors.size > 0 && !selectedSectors.has(name) ? '' : 
+                   (selectedSectors.has(name) ? ' active' : '');
+    const aiClass = isAi ? ' ai' : '';
+    return `<span class="sector-chip${active}${aiClass}" onclick="event.stopPropagation();quickToggleSector('${name.replace(/'/g,"\\'")}')">${name} ${cnt}</span>`;
+  }).filter(Boolean).join('');
+
+  document.getElementById('sectorHot').innerHTML = totalHtml + chips;
+  document.getElementById('sectorExpand').style.display = hot.length > 10 ? 'flex' : 'none';
+}
+
+function quickToggleSector(name) {
+  if (selectedSectors.has(name)) selectedSectors.delete(name);
+  else { selectedSectors.clear(); selectedSectors.add(name); }
+  renderSelectedChips(); render();
+}
+
+// ════════════════════ PE RATIO CONTROL ════════════════════
+function setMinRatio(el, val) {
+  minRatio = val;
+  document.getElementById('ratioCustom').value = '';
+  document.querySelectorAll('.ratio-preset').forEach(p => p.classList.toggle('on', p.dataset.ratio == val));
+  render();
+}
+
+function onCustomRatio() {
+  const v = parseFloat(document.getElementById('ratioCustom').value);
+  if (!isNaN(v) && v >= 0.1) {
+    minRatio = v;
+    document.querySelectorAll('.ratio-preset').forEach(p => p.classList.remove('on'));
+    render();
+  }
+}
+
+function resetRatioUI() {
+  document.querySelectorAll('.ratio-preset').forEach(p => {
+    if (parseFloat(p.dataset.ratio) === minRatio) p.classList.add('on');
+    else p.classList.remove('on');
+  });
+}
+
+// ════════════════════ RENDER ════════════════════
 function filterData() {
   if (!STOCK_DATA.length) return [];
   return STOCK_DATA.filter(s => {
-    if (activeBoard && !s.boards.includes(activeBoard)) return false;
+    // PE ratio filter
+    if (s.ratio < minRatio) return false;
+    // Sector filter (OR logic)
+    if (selectedSectors.size > 0) {
+      const stockSectors = s.sectors || [];
+      if (!stockSectors.some(sec => selectedSectors.has(sec))) return false;
+    }
+    // Search
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       if (!s.code.includes(q) && !s.name.toLowerCase().includes(q)) return false;
@@ -354,88 +674,142 @@ function formatPE(v) {
   return v.toFixed(1);
 }
 
+function serenityClass(score) {
+  if (!score && score !== 0) return '';
+  if (score >= 85) return 'serenity-top';
+  if (score >= 70) return 'serenity-high';
+  if (score >= 55) return 'serenity-track';
+  return '';
+}
+
+function serenityLabel(score) {
+  if (!score && score !== 0) return '';
+  if (score >= 85) return 'Top';
+  if (score >= 70) return 'High';
+  if (score >= 55) return 'Track';
+  return '';
+}
+
 function render() {
   const data = filterData();
-  // Stats
-  const byBoard = {};
-  ALL_BOARDS.forEach(b => { byBoard[b] = data.filter(s => s.boards.includes(b)).length; });
-  let chipsHTML = `<div class="stat-chip${!activeBoard ? ' active' : ''}" onclick="setBoard(null)"><div class="n">${data.length}</div>全部</div>`;
-  Object.entries(byBoard).filter(([_,c]) => c > 0).forEach(([b,c]) => {
-    chipsHTML += `<div class="stat-chip${activeBoard === b ? ' active' : ''}" onclick="setBoard('${b}')"><div class="n">${c}</div>${b}</div>`;
-  });
-  document.getElementById('statsBar').innerHTML = chipsHTML;
+
+  // Hot sectors
+  renderHotSectors();
+
   // Filter chips
-  let fHTML = `<div class="filter-chip${sortKey === 'ratio' ? ' on' : ''}" onclick="setSort('ratio')">📊 比值</div>`;
-  fHTML += `<div class="filter-chip${sortKey === 'peTTM' ? ' on' : ''}" onclick="setSort('peTTM')">📈 PE(TTM)</div>`;
-  fHTML += `<div class="filter-chip${sortKey === 'peDyn' ? ' on' : ''}" onclick="setSort('peDyn')">📉 动态PE</div>`;
-  fHTML += `<div class="filter-chip${sortKey === 'code' ? ' on' : ''}" onclick="setSort('code')">🔢 代码</div>`;
+  let fHTML = `<span class="filter-chip${sortKey==='ratio'?' on':''}" onclick="setSort('ratio')">比值</span>`;
+  fHTML += `<span class="filter-chip${sortKey==='peTTM'?' on':''}" onclick="setSort('peTTM')">PE(TTM)</span>`;
+  fHTML += `<span class="filter-chip${sortKey==='peDyn'?' on':''}" onclick="setSort('peDyn')">动态PE</span>`;
+  fHTML += `<span class="filter-chip${sortKey==='code'?' on':''}" onclick="setSort('code')">代码</span>`;
   document.getElementById('filterWrap').innerHTML = fHTML;
+
   // Cards
   if (data.length === 0) {
     document.getElementById('cardList').innerHTML = '';
     document.getElementById('emptyState').style.display = 'block';
+    document.getElementById('emptyMsg').textContent =
+      minRatio > (META?.baselineRatio||0.8)
+        ? `PE比值 >= ${minRatio} 的标的为0，尝试降低阈值`
+        : '没有符合条件的标的';
   } else {
     document.getElementById('emptyState').style.display = 'none';
-    document.getElementById('cardList').innerHTML = data.map(s => `
+    document.getElementById('cardList').innerHTML = data.map(s => {
+      const ser = s.serenity;
+      const serCls = serenityClass(ser?.score);
+      const serLbl = serenityLabel(ser?.score);
+      const aiCls = s.isAiConcept ? ' tag-ai' : '';
+      const ratioCls = ratioClass(s.ratio);
+      return `
       <div class="card" onclick="openDetail('${s.code}')">
         <div class="card-top">
           <div>
             <div class="card-code">${s.code}</div>
             <div class="card-name">${s.name}</div>
           </div>
-          <div class="card-ratio ${ratioClass(s.ratio)}">${s.ratio.toFixed(1)}x</div>
+          <div class="card-right">
+            <div class="card-ratio ${ratioCls}">${s.ratio.toFixed(1)}x</div>
+            ${serCls ? `<div class="serenity-badge ${serCls}">${serLbl} ${ser.score}</div>` : ''}
+          </div>
         </div>
         <div class="card-metrics">
           <div><div class="metric-label">现价</div><div class="metric-value">¥${s.price}</div></div>
           <div><div class="metric-label">PE(TTM)</div><div class="metric-value">${formatPE(s.peTTM)}</div></div>
           <div><div class="metric-label">动态PE</div><div class="metric-value">${formatPE(s.peDyn)}</div></div>
         </div>
-        <div class="card-tags">${s.boards.map(b => `<span class="tag">${b}</span>`).join('')}</div>
-      </div>
-    `).join('');
+        <div class="card-tags">${(s.sectors||[]).slice(0,4).map(b =>
+          `<span class="tag${isAiSector(b)?' tag-ai':''}">${b}</span>`
+        ).join('')}${(s.sectors||[]).length > 4 ? `<span class="tag">+${s.sectors.length-4}</span>` : ''}</div>
+      </div>`;
+    }).join('');
   }
   document.getElementById('searchCount').style.display = searchQuery ? 'inline' : 'none';
   if (searchQuery) document.getElementById('searchCount').textContent = `${data.length}条`;
+
+  // Update ratio preset highlighting
+  resetRatioUI();
 }
 
-function setBoard(b) { activeBoard = b; render(); }
 function setSort(k) {
-  if (sortKey === k) { sortAsc = !sortAsc; } else { sortKey = k; sortAsc = (k === 'code'); }
+  if (sortKey === k) { sortAsc = !sortAsc; } else { sortKey = k; sortAsc = (k==='code'); }
   render();
 }
 function doSearch() {
   searchQuery = document.getElementById('searchInput').value.trim();
   render();
 }
-function toggleFilters() { document.getElementById('searchInput').focus(); }
 
 // ════════════════════ DETAIL SHEET ════════════════════
 function openDetail(code) {
   const s = STOCK_DATA.find(x => x.code === code);
   if (!s) return;
   const cls = ratioClass(s.ratio);
+  const ser = s.serenity;
+  let serenityHTML = '';
+  if (ser) {
+    const sc = serenityClass(ser.score);
+    const sl = serenityLabel(ser.score);
+    const scColor = ser.score >= 85 ? '#34c759' : ser.score >= 70 ? '#007aff' : ser.score >= 55 ? '#ff9500' : '#ff3b30';
+    serenityHTML = `
+    <div class="serenity-section">
+      <h4>&#128300; 瓶颈分析</h4>
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">
+        <span class="serenity-score-num" style="color:${scColor}">${ser.score}</span>
+        <span class="serenity-verdict" style="color:${scColor}">${(ser.verdict||sl)}</span>
+      </div>
+      <div class="serenity-score-bar">
+        <div class="serenity-score-fill" style="width:${ser.score}%;background:linear-gradient(90deg,#ff3b30,#ff9500,#34c759,#007aff)"></div>
+      </div>
+      ${ser.summary ? `<div class="serenity-summary">${ser.summary}</div>` : ''}
+      ${ser.flags && ser.flags.length ? `<div class="serenity-flags">${ser.flags.map(f=>`<span class="serenity-flag">${f}</span>`).join('')}</div>` : ''}
+    </div>`;
+  }
+
   document.getElementById('sheet').innerHTML = `
     <div class="sheet-handle"></div>
     <div class="sheet-header">
       <div><div class="sheet-title">${s.name}</div><div class="sheet-code">${s.code}</div></div>
-      <button class="sheet-close" onclick="closeSheet()">✕</button>
+      <button class="sheet-close" onclick="closeSheet()">&#10005;</button>
     </div>
     <div class="sheet-ratio ${cls}">${s.ratio.toFixed(1)}x</div>
-    <div style="font-size:12px;color:var(--sub)">PE(TTM) / 动态市盈率 比值</div>
+    <div style="font-size:11px;color:var(--sub)">PE(TTM) / 动态市盈率 比值</div>
     <div class="sheet-grid">
       <div class="sheet-item"><div class="l">现价</div><div class="v">¥${s.price}</div></div>
       <div class="sheet-item"><div class="l">PE(TTM)</div><div class="v">${formatPE(s.peTTM)}</div></div>
       <div class="sheet-item"><div class="l">动态市盈率</div><div class="v">${formatPE(s.peDyn)}</div></div>
-      <div class="sheet-item"><div class="l">所属板块</div><div class="v" style="font-size:13px">${s.boards.join(' / ')}</div></div>
+      <div class="sheet-item"><div class="l">AI概念</div><div class="v" style="font-size:14px">${s.isAiConcept ? '&#9989; 是' : '&#10060; 否'}</div></div>
     </div>
-    <div class="card-tags" style="margin-top:12px">${s.boards.map(b => `<span class="tag">${b}</span>`).join('')}</div>
-    <div style="margin-top:20px;padding:12px;background:#fffbeb;border-radius:10px;font-size:12px;color:#92400e">
-      💡 PE(TTM) > 动态PE × 1.5 → TTM估值高于基于最新季报年化的动态估值，反映最近季度盈利相较TTM出现改善。
+    <div class="card-tags" style="margin-top:10px">${(s.sectors||[]).map(b =>
+      `<span class="tag${isAiSector(b)?' tag-ai':''}">${b}</span>`
+    ).join('')}</div>
+    ${serenityHTML}
+    <div style="margin-top:16px;padding:12px;background:rgba(0,113,227,0.04);border-radius:12px;font-size:11px;color:var(--primary);line-height:1.6">
+      &#128161; PE(TTM) &gt; 动态PE &rarr; TTM估值高于基于最新季报年化的动态估值，反映最新季度盈利相对TTM出现改善。
     </div>
   `;
   document.getElementById('overlay').classList.add('show');
   document.body.style.overflow = 'hidden';
 }
+
 function closeSheet() {
   document.getElementById('overlay').classList.remove('show');
   document.body.style.overflow = '';
@@ -445,25 +819,27 @@ function closeSheet() {
 function shareApp() {
   const url = window.location.href;
   if (navigator.share) {
-    navigator.share({title:'AI PE筛选器',text:'AI板块 PE(TTM)/动态PE > 1.5 筛选结果',url});
+    navigator.share({title:'AI PE Screener',text:'AI板块 PE/动态PE 筛选工具',url});
   } else {
-    navigator.clipboard.writeText(url).then(() => toast('链接已复制，可分享给好友'));
+    navigator.clipboard.writeText(url).then(()=>toast('链接已复制'));
   }
 }
+
 function exportData() {
   const data = filterData();
-  if (!data.length) { toast('暂无数据可导出'); return; }
-  const csv = '代码,名称,现价,PE_TTM,动态PE,比值,板块\n' +
-    data.map(s => `${s.code},${s.name},${s.price},${s.peTTM},${s.peDyn},${s.ratio},${s.boards.join('/')}`).join('\n');
-  const blob = new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8'});
+  if (!data.length) { toast('暂无数据'); return; }
+  const csv = '代码,名称,现价,PE_TTM,动态PE,比值,AI概念,板块\n' +
+    data.map(s => `${s.code},${s.name},${s.price},${s.peTTM},${s.peDyn},${s.ratio},${s.isAiConcept?'是':'否'},${(s.sectors||[]).join('/')}`).join('\n');
+  const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = 'AI_PE_Screener.csv'; a.click();
-  toast('CSV已下载');
+  toast('CSV 已下载');
 }
+
 function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2000);
+  setTimeout(()=>t.classList.remove('show'), 2000);
 }
 
 // ════════════════════ INIT ════════════════════
