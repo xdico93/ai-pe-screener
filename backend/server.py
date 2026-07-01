@@ -38,7 +38,10 @@ def to_qq_code(code):
     return f"sz{code}"
 
 def parse_qq_response(raw):
-    """解析腾讯财经响应，返回 [{code, name, price, peTTM, peDyn, ratio}, ...]"""
+    """解析腾讯财经响应，返回 [{code, name, price, peTTM, peDyn, ratio, isLoss}, ...]
+    
+    包含全部股票（含亏损股）。亏损股 ratio=null, isLoss=true。
+    """
     results = []
     for line in raw.strip().split("\n"):
         if "=" not in line or '"' not in line: continue
@@ -52,10 +55,13 @@ def parse_qq_response(raw):
         try:
             peTTM, peDyn = float(peTTM_s), float(peDyn_s)
         except (ValueError, TypeError): continue
-        if peTTM <= 0 or peDyn <= 0: continue
-        if "*ST" in name or name.startswith("ST") or "退" in name: continue
+        if "退" in name: continue  # 仅排除退市股
+        isLoss = (peTTM <= 0 or peDyn <= 0)
+        isST = "*ST" in name or name.startswith("ST")
+        ratio = round(peTTM / peDyn, 1) if not isLoss else None
         results.append({"code": orig_code, "name": name, "price": price,
-                        "peTTM": peTTM, "peDyn": peDyn, "ratio": round(peTTM / peDyn, 1)})
+                        "peTTM": peTTM, "peDyn": peDyn, "ratio": ratio,
+                        "isLoss": isLoss, "isST": isST})
     return results
 
 def fetch_batch_pe(codes_batch):
@@ -146,8 +152,8 @@ def get_cached_or_fetch():
 def _build_response(cached):
     """构建响应: 返回全部有效PE数据，前端负责所有筛选/排序"""
     stocks, meta_base = cached
-    # 按比值降序排列（默认展示顺序），但返回全部
-    stocks_sorted = sorted(stocks, key=lambda x: x["ratio"], reverse=True)
+    # 按比值降序排列（盈利股在前，亏损股在末尾）
+    stocks_sorted = sorted(stocks, key=lambda x: (x["ratio"] is None, -(x["ratio"] or 0)))
     return {
         "meta": {**meta_base, "returned": len(stocks_sorted)},
         "data": stocks_sorted,
