@@ -249,19 +249,28 @@ def get_minute(code: str = Query(...)):
     if not raw or not isinstance(raw, list):
         return {"code": code, "data": []}
     trends = []
+    prev_vol = 0
+    prev_amt = 0
     for row in raw:
-        # Tencent format: "HHMM price volume amount"
+        # Tencent format: "HHMM price cumulative_volume cumulative_amount"
         parts = str(row).split() if isinstance(row, str) else []
         if len(parts) < 3: continue
         try:
             t = parts[0]
             time_str = f"{t[:2]}:{t[2:]}" if len(t) >= 4 else t
+            cum_vol = int(float(parts[2]))
+            cum_amt = float(parts[3]) if len(parts) > 3 else 0
+            # Convert cumulative → per-minute volume
+            per_vol = cum_vol - prev_vol
+            per_amt = cum_amt - prev_amt
             trends.append({
                 "time": time_str,
                 "price": float(parts[1]),
-                "volume": int(float(parts[2])),
-                "amount": float(parts[3]) if len(parts) > 3 else 0,
+                "volume": max(0, per_vol),
+                "amount": max(0, per_amt),
             })
+            prev_vol = cum_vol
+            prev_amt = cum_amt
         except (ValueError, IndexError):
             continue
     return {"code": code, "data": trends}
