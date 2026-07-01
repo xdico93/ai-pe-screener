@@ -296,6 +296,16 @@ body {
   background:rgba(255,59,48,0.08); color:var(--red); font-weight:500;
 }
 
+/* ── Chart ── */
+.chart-period {
+  padding:3px 12px; border-radius:12px; font-size:11px; font-weight:500;
+  border:1px solid var(--border); background:var(--card); cursor:pointer;
+  color:var(--sub); transition:all .15s;
+}
+.chart-period.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+#stockChart { display:block; image-rendering:pixelated; }
+#chartLoading { padding:30px; }
+
 /* ── Toast ── */
 .toast {
   position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
@@ -371,6 +381,7 @@ body {
 <div class="ratio-ctrl">
   <div class="ratio-label">PE(TTM) / 动态PE 最低比值</div>
   <div class="ratio-presets">
+    <span class="ratio-preset" data-ratio="0" onclick="setMinRatio(this,0)">全部</span>
     <span class="ratio-preset on" data-ratio="0.8" onclick="setMinRatio(this,0.8)">0.8</span>
     <span class="ratio-preset" data-ratio="1.0" onclick="setMinRatio(this,1.0)">1.0</span>
     <span class="ratio-preset" data-ratio="1.5" onclick="setMinRatio(this,1.5)">1.5</span>
@@ -999,16 +1010,26 @@ function openDetail(code) {
   document.getElementById('sheet').innerHTML = `
     <div class="sheet-handle"></div>
     <div class="sheet-header">
-      <div><div class="sheet-title">${s.name}</div><div class="sheet-code">${s.code}</div></div>
+      <div><div class="sheet-title">${s.name}</div><div class="sheet-code">${s.code}${s.isST?' <span style="color:#ff3b30;font-size:11px">ST</span>':''}${s.isLoss?' <span style="color:#ff9500;font-size:11px">亏损</span>':''}</div></div>
       <button class="sheet-close" onclick="closeSheet()">&#10005;</button>
     </div>
-    <div class="sheet-ratio ${cls}">${s.ratio.toFixed(1)}x</div>
+    <div class="sheet-ratio ${cls}">${formatRatio(s.ratio)}</div>
     <div style="font-size:11px;color:var(--sub)">PE(TTM) / 动态市盈率 比值</div>
     <div class="sheet-grid">
       <div class="sheet-item"><div class="l">现价</div><div class="v">¥${s.price}</div></div>
       <div class="sheet-item"><div class="l">PE(TTM)</div><div class="v">${formatPE(s.peTTM)}</div></div>
       <div class="sheet-item"><div class="l">动态市盈率</div><div class="v">${formatPE(s.peDyn)}</div></div>
       <div class="sheet-item"><div class="l">AI概念</div><div class="v" style="font-size:14px">${s.isAiConcept ? '&#9989; 是' : '&#10060; 否'}</div></div>
+    </div>
+    <!-- Chart Section -->
+    <div style="margin-top:12px;background:var(--card);border-radius:12px;padding:8px;border:1px solid var(--border)">
+      <div style="display:flex;gap:4px;margin-bottom:8px">
+        ${['分时','日K','周K','月K'].map((p, i) => 
+          `<button class="chart-period${i===1?' active':''}" data-period="${['m1','day','week','month'][i]}" onclick="switchPeriod(this,'${s.code}','${['m1','day','week','month'][i]}')">${p}</button>`
+        ).join('')}
+      </div>
+      <canvas id="stockChart" width="380" height="320" style="width:100%;height:auto;border-radius:8px;background:#1a1a2e"></canvas>
+      <div id="chartLoading" style="text-align:center;padding:20px;color:var(--sub);font-size:12px">加载图表数据...</div>
     </div>
     <div class="card-tags" style="margin-top:10px">${(s.sectors||[]).map(b =>
       `<span class="tag${isAiSector(b)?' tag-ai':''}">${b}</span>`
@@ -1020,11 +1041,296 @@ function openDetail(code) {
   `;
   document.getElementById('overlay').classList.add('show');
   document.body.style.overflow = 'hidden';
+  // Start loading chart data
+  setTimeout(() => loadChartData(s.code, 'day'), 100);
 }
 
 function closeSheet() {
   document.getElementById('overlay').classList.remove('show');
   document.body.style.overflow = '';
+  // Abort any pending chart fetch
+  if (window._chartAbort) { window._chartAbort.abort(); window._chartAbort = null; }
+}
+
+// ════════════════════ STOCK CHART (Eastmoney API) ════════════════════
+function emSecId(code) {
+  if (code.startsWith('6')) return '1.' + code;
+  if (code.startsWith('8')) return '1.' + code;
+  return '0.' + code;
+}
+
+async function switchPeriod(btn, code, period) {
+  document.querySelectorAll('.chart-period').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadChartData(code, period);
+}
+
+async function loadChartData(code, period) {
+  if (window._chartAbort) window._chartAbort.abort();
+  window._chartAbort = new AbortController();
+  const sig = window._chartAbort.signal;
+  
+  document.getElementById('chartLoading').style.display = 'block';
+  const canvas = document.getElementById('stockChart');
+  if (canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); }
+
+  try {
+    let data;
+    if (period === 'm1') {
+      // 分时图
+      data = await fetchMinuteData(code, sig);
+    } else {
+      data = await fetchKlineData(code, period, sig);
+    }
+    document.getElementById('chartLoading').style.display = 'none';
+    if (data && data.length > 0) {
+      drawKlineChart(data, period);
+    } else {
+      document.getElementById('chartLoading').innerHTML = '暂无数据';
+    }
+  } catch(e) {
+    if (e.name !== 'AbortError') {
+      document.getElementById('chartLoading').innerHTML = '加载失败: ' + e.message;
+      console.error('Chart error:', e);
+    }
+  }
+}
+
+async function fetchKlineData(code, period, signal) {
+  const klt = { day: 101, week: 102, month: 103 }[period] || 101;
+  const lmt = period === 'month' ? 60 : 120;
+  const secid = emSecId(code);
+  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&klt=${klt}&fqt=0&lmt=${lmt}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57`;
+  const resp = await fetch(url, { signal });
+  const json = await resp.json();
+  if (!json.data || !json.data.klines) return [];
+  return json.data.klines.map(line => {
+    const parts = line.split(',');
+    return {
+      date: parts[0], open: +parts[1], close: +parts[2], high: +parts[3], low: +parts[4],
+      volume: +parts[5], amount: +parts[6]
+    };
+  });
+}
+
+async function fetchMinuteData(code, signal) {
+  const secid = emSecId(code);
+  const url = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11&fields2=f51,f52,f53,f54,f55,f56,f57,f58&lmt=240`;
+  const resp = await fetch(url, { signal });
+  const json = await resp.json();
+  if (!json.data || !json.data.trends) return [];
+  return json.data.trends.map(line => {
+    const parts = line.split(',');
+    return {
+      time: parts[0], price: +parts[2], avg: +parts[6], volume: +parts[7]
+    };
+  });
+}
+
+function calcMA(data, n) {
+  return data.map((_, i) => {
+    if (i < n - 1) return null;
+    let sum = 0;
+    for (let j = i - n + 1; j <= i; j++) sum += data[j].close;
+    return sum / n;
+  });
+}
+
+function calcEMA(data, n) {
+  const k = 2 / (n + 1);
+  const result = [];
+  let ema = data[0].close;
+  result.push(ema);
+  for (let i = 1; i < data.length; i++) {
+    ema = data[i].close * k + ema * (1 - k);
+    result.push(ema);
+  }
+  return result;
+}
+
+function calcMACD(data) {
+  const closes = data.map(d => d.close);
+  const ema12 = calcEMA(data, 12);
+  const ema26 = calcEMA(data, 26);
+  const dif = ema12.map((v, i) => v - ema26[i]);
+  // DEA = 9-day EMA of DIF
+  const k = 2 / 10;
+  const dea = [];
+  let deaVal = dif[0];
+  for (let i = 0; i < dif.length; i++) {
+    deaVal = dif[i] * k + deaVal * (1 - k);
+    dea.push(deaVal);
+  }
+  const macdBar = dif.map((v, i) => 2 * (v - dea[i]));
+  return { dif, dea, macd: macdBar };
+}
+
+function drawKlineChart(data, period) {
+  const canvas = document.getElementById('stockChart');
+  if (!canvas || !data.length) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = 320;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const bg = '#1a1a2e';
+  const fg = '#e0e0e0';
+  const grid = '#2a2a4a';
+  const red = '#ef5350', green = '#26a69a';
+  
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  // Layout: main chart (0-220), volume (230-270), macd (280-318)
+  const mainTop = 0, mainBot = 210;
+  const volTop = 216, volBot = 270;
+  const macdTop = 278, macdBot = 318;
+  const mainH = mainBot - mainTop;
+
+  const count = data.length;
+  const barW = Math.max(1, (w - 20) / count * 0.7);
+  const gap = Math.max(0.2, (w - 20) / count * 0.3);
+  const xOffset = 10;
+  
+  // Price range
+  let minPrice = Infinity, maxPrice = -Infinity;
+  let maxVol = 0;
+  for (const d of data) {
+    if (d.low < minPrice) minPrice = d.low;
+    if (d.high > maxPrice) maxPrice = d.high;
+    if (d.volume > maxVol) maxVol = d.volume;
+  }
+  const priceRange = maxPrice - minPrice || 1;
+  const priceY = (p) => mainBot - ((p - minPrice) / priceRange) * mainH;
+
+  // Compute indicators
+  const ma5 = calcMA(data, 5);
+  const ma10 = calcMA(data, 10);
+  const ma20 = calcMA(data, 20);
+  const ma60 = calcMA(data, 60);
+  const macd = calcMACD(data);
+
+  // MACD range
+  let macdMin = Infinity, macdMax = -Infinity;
+  for (let i = 0; i < macd.dif.length; i++) {
+    if (macd.dif[i] < macdMin) macdMin = macd.dif[i];
+    if (macd.dif[i] > macdMax) macdMax = macd.dif[i];
+    if (macd.macd[i] < macdMin) macdMin = macd.macd[i];
+    if (macd.macd[i] > macdMax) macdMax = macd.macd[i];
+  }
+  const macdRange = Math.max(Math.abs(macdMin), Math.abs(macdMax), 1);
+  macdMin = Math.min(macdMin, -macdRange * 0.1);
+  macdMax = Math.max(macdMax, macdRange * 0.1);
+  const macdY = (v) => macdBot - ((v - macdMin) / (macdMax - macdMin)) * (macdBot - macdTop);
+
+  // Grid lines (main)
+  ctx.strokeStyle = grid;
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = mainTop + (mainH / 4) * i;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+
+  // Draw candlesticks
+  for (let i = 0; i < count; i++) {
+    const d = data[i];
+    const x = xOffset + i * (barW + gap);
+    const isRed = d.close >= d.open;
+    ctx.strokeStyle = isRed ? red : green;
+    ctx.fillStyle = isRed ? red : green;
+
+    // Wick
+    ctx.beginPath();
+    ctx.moveTo(x + barW / 2, priceY(d.high));
+    ctx.lineTo(x + barW / 2, priceY(d.low));
+    ctx.stroke();
+
+    // Body
+    const bodyH = Math.max(1, Math.abs(priceY(d.close) - priceY(d.open)));
+    ctx.fillRect(x, priceY(Math.max(d.open, d.close)), barW, bodyH);
+  }
+
+  // MA lines
+  const maColors = { 5: '#ffeb3b', 10: '#ff9800', 20: '#e91e63', 60: '#2196f3' };
+  const maData = { 5: ma5, 10: ma10, 20: ma20, 60: ma60 };
+  for (const [n, ma] of Object.entries(maData)) {
+    if (n > count) continue;
+    ctx.strokeStyle = maColors[n];
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < count; i++) {
+      if (ma[i] === null) continue;
+      const px = xOffset + i * (barW + gap) + barW / 2;
+      if (!started) { ctx.moveTo(px, priceY(ma[i])); started = true; }
+      else ctx.lineTo(px, priceY(ma[i]));
+    }
+    ctx.stroke();
+  }
+
+  // Volume bars
+  ctx.strokeStyle = grid;
+  ctx.beginPath(); ctx.moveTo(0, volTop); ctx.lineTo(w, volTop); ctx.stroke();
+  const volY = (v) => volBot - (v / maxVol) * (volBot - volTop);
+  for (let i = 0; i < count; i++) {
+    const d = data[i];
+    const x = xOffset + i * (barW + gap);
+    const isRed = d.close >= d.open;
+    ctx.fillStyle = isRed ? red + '88' : green + '88';
+    ctx.fillRect(x, volY(d.volume), barW, volBot - volY(d.volume) || 1);
+  }
+
+  // MACD
+  const zeroY = macdY(0);
+  ctx.strokeStyle = grid;
+  ctx.beginPath(); ctx.moveTo(0, macdTop); ctx.lineTo(w, macdTop); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, zeroY); ctx.lineTo(w, zeroY); ctx.stroke();
+
+  // MACD bars
+  for (let i = 0; i < count; i++) {
+    const x = xOffset + i * (barW + gap);
+    const v = macd.macd[i];
+    const y1 = macdY(0), y2 = macdY(v);
+    ctx.fillStyle = v >= 0 ? red + 'aa' : green + 'aa';
+    ctx.fillRect(x, Math.min(y1, y2), barW, Math.abs(y2 - y1) || 1);
+  }
+
+  // DIF & DEA lines
+  ctx.lineWidth = 1;
+  for (const [name, values, color] of [['DIF', macd.dif, '#ffffff'], ['DEA', macd.dea, '#ff9800']]) {
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < count; i++) {
+      const px = xOffset + i * (barW + gap) + barW / 2;
+      if (!started) { ctx.moveTo(px, macdY(values[i])); started = true; }
+      else ctx.lineTo(px, macdY(values[i]));
+    }
+    ctx.stroke();
+  }
+
+  // Price labels
+  ctx.fillStyle = '#888';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'left';
+  for (let i = 0; i <= 4; i++) {
+    const p = maxPrice - (priceRange / 4) * i;
+    ctx.fillText(p.toFixed(2), 1, priceY(p) - 2);
+  }
+
+  // Chart labels
+  const lastD = data[count - 1];
+  const firstD = data[0];
+  ctx.textAlign = 'left';
+  ctx.fillText(firstD.date.slice(5), 2, volBot);
+  ctx.textAlign = 'right';
+  ctx.fillText(lastD.date.slice(5), w - 2, volBot);
+  ctx.fillText('VOL', w - 2, volTop + 10);
+  ctx.fillText('MACD', 2, macdTop + 10);
 }
 
 // ════════════════════ ACTIONS ════════════════════
