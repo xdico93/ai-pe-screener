@@ -514,7 +514,7 @@ async function loadData(forceRefresh) {
     btn.textContent = forceRefresh ? '已更新' : '更新数据';
 
     if (isFirstLoad) {
-      minRatio = META.baselineRatio || 0.8;
+      minRatio = 0;
       selectedSectors = new Set();
       activeSectorPage = 0;
     }
@@ -586,6 +586,7 @@ let minScore = 0;
 let selectedSectors = new Set();
 let searchQuery = '';
 let searchTimer = null;
+let _chartToken = 0;
 let sortKey = 'ratio';
 let sortAsc = false;
 let sectorFullOpen = false;
@@ -1041,59 +1042,104 @@ function openDetail(code) {
   `;
   document.getElementById('overlay').classList.add('show');
   document.body.style.overflow = 'hidden';
-  // Start loading chart data
-  setTimeout(() => loadChartData(s.code, 'day'), 100);
+  // Start loading chart data with unique token to prevent stale loads
+  const token = ++window._chartToken;
+  setTimeout(() => {
+    if (window._chartToken !== token) return; // Stale, skip
+    loadChartData(s.code, 'day');
+  }, 100);
 }
 
 function closeSheet() {
   document.getElementById('overlay').classList.remove('show');
   document.body.style.overflow = '';
-  // Abort any pending chart fetch
+  _chartSwitching = false;
   if (window._chartAbort) { window._chartAbort.abort(); window._chartAbort = null; }
 }
 
 // ════════════════════ STOCK CHART (Eastmoney API) ════════════════════
 function emSecId(code) {
   if (code.startsWith('6')) return '1.' + code;
-  if (code.startsWith('8')) return '1.' + code;
+  if (code.startsWith('8') || code.startsWith('9')) return '1.' + code;
   return '0.' + code;
 }
 
+// Debounce chart switch to prevent rapid re-entrance
+let _chartSwitching = false;
 async function switchPeriod(btn, code, period) {
+  if (_chartSwitching) return;
   document.querySelectorAll('.chart-period').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   loadChartData(code, period);
 }
 
 async function loadChartData(code, period) {
+  // Cancel any pending fetch and start fresh
   if (window._chartAbort) window._chartAbort.abort();
-  window._chartAbort = new AbortController();
-  const sig = window._chartAbort.signal;
-  
-  document.getElementById('chartLoading').style.display = 'block';
-  const canvas = document.getElementById('stockChart');
-  if (canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); }
+  const controller = new AbortController();
+  window._chartAbort = controller;
+  const sig = controller.signal;
 
+  const loadingEl = document.getElementById('chartLoading');
+  if (!loadingEl) return;
+  loadingEl.style.display = 'block';
+  loadingEl.textContent = '加载中...';
+
+  const canvas = document.getElementById('stockChart');
+  if (canvas) { const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); }
+
+  _chartSwitching = true;
   try {
     let data;
     if (period === 'm1') {
-      // 分时图
-      data = await fetchMinuteData(code, sig);
+      data = await robustFetch(code, 'minute', sig);
     } else {
-      data = await fetchKlineData(code, period, sig);
+      data = await robustFetch(code, period, sig);
     }
-    document.getElementById('chartLoading').style.display = 'none';
+    if (sig.aborted) return;
+    loadingEl.style.display = 'none';
     if (data && data.length > 0) {
-      drawKlineChart(data, period);
+      if (period === 'm1') drawMinuteChart(data);
+      else drawKlineChart(data, period);
     } else {
-      document.getElementById('chartLoading').innerHTML = '暂无数据';
+      loadingEl.textContent = '暂无数据';
+      loadingEl.style.display = 'block';
     }
   } catch(e) {
-    if (e.name !== 'AbortError') {
-      document.getElementById('chartLoading').innerHTML = '加载失败: ' + e.message;
-      console.error('Chart error:', e);
+    if (e.name === 'AbortError') return;
+    loadingEl.textContent = '加载失败: ' + e.message;
+    loadingEl.style.display = 'block';
+    console.error('Chart error:', code, period, e);
+  } finally {
+    _chartSwitching = false;
+  }
+}
+
+// Robust fetch with automatic retry
+async function robustFetch(code, period, signal) {
+  const MAX_RETRIES = 2;
+  let lastErr = null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (attempt > 0) {
+      // Brief delay before retry
+      await new Promise(r => { const t = setTimeout(r, 400); signal.addEventListener('abort', () => clearTimeout(t)); });
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    }
+    try {
+      if (period === 'minute') {
+        return await fetchMinuteData(code, signal);
+      } else {
+        return await fetchKlineData(code, period, signal);
+      }
+    } catch(e) {
+      if (e.name === 'AbortError') throw e;
+      lastErr = e;
+      // Only retry on network errors, not API errors
+      if (attempt < MAX_RETRIES) console.warn('Chart fetch retry', attempt + 1, code, period, e.message);
     }
   }
+  throw lastErr || new Error('Max retries exceeded');
 }
 
 async function fetchKlineData(code, period, signal) {
@@ -1101,9 +1147,12 @@ async function fetchKlineData(code, period, signal) {
   const lmt = period === 'month' ? 60 : 120;
   const secid = emSecId(code);
   const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&klt=${klt}&fqt=0&lmt=${lmt}&end=20500101&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57&ut=f057cbc0c275a4e6f21e6a9c2f2e3e1e`;
-  const resp = await fetch(url, { signal });
+  const resp = await fetch(url, { signal, cache: 'no-cache' });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const json = await resp.json();
-  if (!json.data || !json.data.klines) return [];
+  if (!json || json.rc !== 0 || !json.data || !json.data.klines) {
+    throw new Error(json && json.rc ? `API error rc=${json.rc}` : 'No kline data');
+  }
   return json.data.klines.map(line => {
     const parts = line.split(',');
     return {
@@ -1116,9 +1165,12 @@ async function fetchKlineData(code, period, signal) {
 async function fetchMinuteData(code, signal) {
   const secid = emSecId(code);
   const url = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11&fields2=f51,f52,f53,f54,f55,f56,f57,f58&lmt=240&ut=f057cbc0c275a4e6f21e6a9c2f2e3e1e`;
-  const resp = await fetch(url, { signal });
+  const resp = await fetch(url, { signal, cache: 'no-cache' });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const json = await resp.json();
-  if (!json.data || !json.data.trends) return [];
+  if (!json || json.rc !== 0 || !json.data || !json.data.trends) {
+    throw new Error(json && json.rc ? `API error rc=${json.rc}` : 'No trends data');
+  }
   return json.data.trends.map(line => {
     const parts = line.split(',');
     return {
@@ -1127,6 +1179,121 @@ async function fetchMinuteData(code, signal) {
   });
 }
 
+// ── Minute chart rendering (line chart) ──
+function drawMinuteChart(data) {
+  const canvas = document.getElementById('stockChart');
+  if (!canvas || !data.length) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 380;
+  const h = 320;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const bg = '#1a1a2e', fg = '#e0e0e0', grid = '#2a2a4a';
+  const red = '#ef5350', green = '#26a69a';
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+
+  const chartTop = 10, chartBot = 200, volTop = 220, volBot = 310;
+  const chartH = chartBot - chartTop, volH = volBot - volTop;
+  const count = data.length;
+  if (count < 2) return;
+
+  // Price range
+  let minP = Infinity, maxP = -Infinity, maxV = 0;
+  for (const d of data) {
+    if (d.price < minP) minP = d.price;
+    if (d.price > maxP) maxP = d.price;
+    if (d.avg && d.avg < minP) minP = d.avg;
+    if (d.avg && d.avg > maxP) maxP = d.avg;
+    if (d.volume > maxV) maxV = d.volume;
+  }
+  const priceR = maxP - minP || 0.01;
+  const py = (p) => chartBot - ((p - minP) / priceR) * chartH;
+
+  // Pre-close line
+  const preClose = data[0].price;
+  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = '#555'; ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(0, py(preClose)); ctx.lineTo(w, py(preClose)); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Grid
+  ctx.strokeStyle = grid; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const y = chartTop + (chartH / 4) * i;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+
+  // Price polyline
+  const stepX = (w - 20) / (count - 1);
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < count; i++) {
+    const x = 10 + i * stepX;
+    if (i === 0) ctx.moveTo(x, py(data[i].price));
+    else ctx.lineTo(x, py(data[i].price));
+  }
+  ctx.stroke();
+
+  // Avg line (yellow)
+  ctx.strokeStyle = '#ffeb3b'; ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  let avgStarted = false;
+  for (let i = 0; i < count; i++) {
+    if (!data[i].avg) continue;
+    const x = 10 + i * stepX;
+    if (!avgStarted) { ctx.moveTo(x, py(data[i].avg)); avgStarted = true; }
+    else ctx.lineTo(x, py(data[i].avg));
+  }
+  if (avgStarted) ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Volume bars
+  ctx.strokeStyle = grid;
+  ctx.beginPath(); ctx.moveTo(0, volTop); ctx.lineTo(w, volTop); ctx.stroke();
+  const vy = (v) => volBot - (v / (maxV || 1)) * volH;
+  const stepV = (w - 20) / count;
+  const isRise = data[count - 1].price >= preClose;
+  for (let i = 0; i < count; i++) {
+    const x = 10 + i * stepV;
+    const v = data[i].volume;
+    const diffPrev = i > 0 ? data[i].price - data[i - 1].price : 0;
+    const barColor = diffPrev >= 0 ? red : green;
+    ctx.fillStyle = barColor + '88';
+    ctx.fillRect(x, vy(v), Math.max(1, stepV * 0.7), volBot - vy(v) || 1);
+  }
+
+  // Labels
+  ctx.fillStyle = '#888'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
+  for (let i = 0; i <= 4; i++) {
+    const p = maxP - (priceR / 4) * i;
+    ctx.fillText(p.toFixed(2), 1, py(p) - 2);
+  }
+  // PreClose marker
+  ctx.fillText('昨收 ' + preClose.toFixed(2), w - 70, py(preClose) - 2);
+
+  // Time labels
+  const firstT = data[0].time;
+  const lastT = data[count - 1].time;
+  ctx.textAlign = 'left';
+  ctx.fillText(firstT.slice(10, 16) || firstT.slice(5, 16) || '', 2, volBot);
+  ctx.textAlign = 'right';
+  ctx.fillText(lastT.slice(10, 16) || lastT.slice(5, 16) || '', w - 2, volBot);
+  ctx.fillText('VOL', w - 2, volTop + 10);
+
+  // Legend
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#fff';
+  ctx.fillText('— 价格', 5, 18);
+  ctx.fillStyle = '#ffeb3b';
+  ctx.fillText('--- 均价', 55, 18);
+}
+
+// ── K-line chart rendering (candlestick + MA + VOL + MACD) ──
 function calcMA(data, n) {
   return data.map((_, i) => {
     if (i < n - 1) return null;
@@ -1149,11 +1316,9 @@ function calcEMA(data, n) {
 }
 
 function calcMACD(data) {
-  const closes = data.map(d => d.close);
   const ema12 = calcEMA(data, 12);
   const ema26 = calcEMA(data, 26);
   const dif = ema12.map((v, i) => v - ema26[i]);
-  // DEA = 9-day EMA of DIF
   const k = 2 / 10;
   const dea = [];
   let deaVal = dif[0];
@@ -1169,7 +1334,7 @@ function drawKlineChart(data, period) {
   const canvas = document.getElementById('stockChart');
   if (!canvas || !data.length) return;
   const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth;
+  const w = canvas.clientWidth || 380;
   const h = 320;
   canvas.width = w * dpr;
   canvas.height = h * dpr;
@@ -1177,28 +1342,17 @@ function drawKlineChart(data, period) {
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
 
-  const bg = '#1a1a2e';
-  const fg = '#e0e0e0';
-  const grid = '#2a2a4a';
-  const red = '#ef5350', green = '#26a69a';
-  
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, w, h);
+  const bg = '#1a1a2e', grid = '#2a2a4a', red = '#ef5350', green = '#26a69a';
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
 
-  // Layout: main chart (0-220), volume (230-270), macd (280-318)
-  const mainTop = 0, mainBot = 210;
-  const volTop = 216, volBot = 270;
-  const macdTop = 278, macdBot = 318;
+  const mainTop = 0, mainBot = 210, volTop = 216, volBot = 270, macdTop = 278, macdBot = 318;
   const mainH = mainBot - mainTop;
-
   const count = data.length;
   const barW = Math.max(1, (w - 20) / count * 0.7);
   const gap = Math.max(0.2, (w - 20) / count * 0.3);
   const xOffset = 10;
-  
-  // Price range
-  let minPrice = Infinity, maxPrice = -Infinity;
-  let maxVol = 0;
+
+  let minPrice = Infinity, maxPrice = -Infinity, maxVol = 0;
   for (const d of data) {
     if (d.low < minPrice) minPrice = d.low;
     if (d.high > maxPrice) maxPrice = d.high;
@@ -1207,14 +1361,12 @@ function drawKlineChart(data, period) {
   const priceRange = maxPrice - minPrice || 1;
   const priceY = (p) => mainBot - ((p - minPrice) / priceRange) * mainH;
 
-  // Compute indicators
   const ma5 = calcMA(data, 5);
   const ma10 = calcMA(data, 10);
   const ma20 = calcMA(data, 20);
   const ma60 = calcMA(data, 60);
   const macd = calcMACD(data);
 
-  // MACD range
   let macdMin = Infinity, macdMax = -Infinity;
   for (let i = 0; i < macd.dif.length; i++) {
     if (macd.dif[i] < macdMin) macdMin = macd.dif[i];
@@ -1227,41 +1379,31 @@ function drawKlineChart(data, period) {
   macdMax = Math.max(macdMax, macdRange * 0.1);
   const macdY = (v) => macdBot - ((v - macdMin) / (macdMax - macdMin)) * (macdBot - macdTop);
 
-  // Grid lines (main)
-  ctx.strokeStyle = grid;
-  ctx.lineWidth = 0.5;
+  ctx.strokeStyle = grid; ctx.lineWidth = 0.5;
   for (let i = 0; i <= 4; i++) {
     const y = mainTop + (mainH / 4) * i;
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
   }
 
-  // Draw candlesticks
   for (let i = 0; i < count; i++) {
     const d = data[i];
     const x = xOffset + i * (barW + gap);
     const isRed = d.close >= d.open;
     ctx.strokeStyle = isRed ? red : green;
     ctx.fillStyle = isRed ? red : green;
-
-    // Wick
     ctx.beginPath();
     ctx.moveTo(x + barW / 2, priceY(d.high));
     ctx.lineTo(x + barW / 2, priceY(d.low));
     ctx.stroke();
-
-    // Body
     const bodyH = Math.max(1, Math.abs(priceY(d.close) - priceY(d.open)));
     ctx.fillRect(x, priceY(Math.max(d.open, d.close)), barW, bodyH);
   }
 
-  // MA lines
   const maColors = { 5: '#ffeb3b', 10: '#ff9800', 20: '#e91e63', 60: '#2196f3' };
   const maData = { 5: ma5, 10: ma10, 20: ma20, 60: ma60 };
   for (const [n, ma] of Object.entries(maData)) {
-    if (n > count) continue;
-    ctx.strokeStyle = maColors[n];
-    ctx.lineWidth = 1;
-    ctx.beginPath();
+    if (+n > count) continue;
+    ctx.strokeStyle = maColors[n]; ctx.lineWidth = 1; ctx.beginPath();
     let started = false;
     for (let i = 0; i < count; i++) {
       if (ma[i] === null) continue;
@@ -1272,38 +1414,32 @@ function drawKlineChart(data, period) {
     ctx.stroke();
   }
 
-  // Volume bars
   ctx.strokeStyle = grid;
   ctx.beginPath(); ctx.moveTo(0, volTop); ctx.lineTo(w, volTop); ctx.stroke();
   const volY = (v) => volBot - (v / maxVol) * (volBot - volTop);
   for (let i = 0; i < count; i++) {
     const d = data[i];
     const x = xOffset + i * (barW + gap);
-    const isRed = d.close >= d.open;
-    ctx.fillStyle = isRed ? red + '88' : green + '88';
-    ctx.fillRect(x, volY(d.volume), barW, volBot - volY(d.volume) || 1);
+    ctx.fillStyle = (d.close >= d.open ? red : green) + '88';
+    ctx.fillRect(x, volY(d.volume), barW, (volBot - volY(d.volume)) || 1);
   }
 
-  // MACD
   const zeroY = macdY(0);
   ctx.strokeStyle = grid;
   ctx.beginPath(); ctx.moveTo(0, macdTop); ctx.lineTo(w, macdTop); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(0, zeroY); ctx.lineTo(w, zeroY); ctx.stroke();
 
-  // MACD bars
   for (let i = 0; i < count; i++) {
     const x = xOffset + i * (barW + gap);
     const v = macd.macd[i];
     const y1 = macdY(0), y2 = macdY(v);
     ctx.fillStyle = v >= 0 ? red + 'aa' : green + 'aa';
-    ctx.fillRect(x, Math.min(y1, y2), barW, Math.abs(y2 - y1) || 1);
+    ctx.fillRect(x, Math.min(y1, y2), barW, (Math.abs(y2 - y1)) || 1);
   }
 
-  // DIF & DEA lines
   ctx.lineWidth = 1;
-  for (const [name, values, color] of [['DIF', macd.dif, '#ffffff'], ['DEA', macd.dea, '#ff9800']]) {
-    ctx.strokeStyle = color;
-    ctx.beginPath();
+  for (const [color, values] of [['#ffffff', macd.dif], ['#ff9800', macd.dea]]) {
+    ctx.strokeStyle = color; ctx.beginPath();
     let started = false;
     for (let i = 0; i < count; i++) {
       const px = xOffset + i * (barW + gap) + barW / 2;
@@ -1313,18 +1449,12 @@ function drawKlineChart(data, period) {
     ctx.stroke();
   }
 
-  // Price labels
-  ctx.fillStyle = '#888';
-  ctx.font = '9px sans-serif';
-  ctx.textAlign = 'left';
+  ctx.fillStyle = '#888'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
   for (let i = 0; i <= 4; i++) {
     const p = maxPrice - (priceRange / 4) * i;
     ctx.fillText(p.toFixed(2), 1, priceY(p) - 2);
   }
-
-  // Chart labels
-  const lastD = data[count - 1];
-  const firstD = data[0];
+  const lastD = data[count - 1], firstD = data[0];
   ctx.textAlign = 'left';
   ctx.fillText(firstD.date.slice(5), 2, volBot);
   ctx.textAlign = 'right';
