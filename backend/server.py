@@ -17,6 +17,7 @@ AI PE Screener 全市场实时数据后端 v3.0
 import json
 import os
 import time
+import asyncio
 import urllib.request
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -187,30 +188,32 @@ async def get_data():
     return get_cached_or_fetch()
 
 
-# ─── 图表数据代理 (解决浏览器CORS) ───
-import httpx
+# ─── 图表数据代理 (绕过浏览器CORS, 纯标准库) ───
 
 _EM_UT = "f057cbc0c275a4e6f21e6a9c2f2e3e1e"
+_EM_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 def _em_secid(code: str) -> str:
-    """东方财富 secid: 0=深/创业板, 1=沪/北交所/科创板/B股"""
-    if code.startswith(("6", "8", "9")):
-        return f"1.{code}"
+    if code.startswith(("6", "8", "9")): return f"1.{code}"
     return f"0.{code}"
 
-async def _proxy_get(url: str, timeout: float = 10):
-    """HTTP GET 代理, 绕过浏览器CORS"""
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        resp = await client.get(url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Referer": "https://quote.eastmoney.com/",
-        })
-        return resp.json()
+def _sync_fetch_json(url: str) -> dict:
+    """同步 HTTP GET → JSON (在 thread pool 中运行)"""
+    req = urllib.request.Request(url, headers={
+        "User-Agent": _EM_UA,
+        "Referer": "https://quote.eastmoney.com/",
+    })
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+async def _proxy_fetch(url: str) -> dict:
+    """在 thread pool 中执行同步 HTTP，避免阻塞 event loop"""
+    return await asyncio.to_thread(_sync_fetch_json, url)
 
 @app.get("/api/chart/kline")
-async def get_kline(code: str = Query(...), period: str = Query("day", enum=["day","week","month"])):
-    """K线数据代理: 浏览器→Render→东财"""
-    klt = {"day":101, "week":102, "month":103}[period]
+async def get_kline(code: str = Query(...), period: str = Query("day")):
+    """K线数据: Render代理→东财"""
+    klt = {"day": 101, "week": 102, "month": 103}.get(period, 101)
     lmt = 60 if period == "month" else 120
     secid = _em_secid(code)
     url = (
@@ -219,37 +222,48 @@ async def get_kline(code: str = Query(...), period: str = Query("day", enum=["da
         f"&end=20500101&fields1=f1,f2,f3,f4,f5,f6"
         f"&fields2=f51,f52,f53,f54,f55,f56,f57&ut={_EM_UT}"
     )
-    jd = await _proxy_get(url)
+    try:
+        jd = await _proxy_fetch(url)
+    except Exception as e:
+        raise HTTPException(502, f"东财API请求失败: {e}")
     if not jd or jd.get("rc") != 0 or not jd.get("data") or not jd["data"].get("klines"):
         raise HTTPException(502, f"东财API错误: rc={jd.get('rc','?')}")
     klines = []
     for line in jd["data"]["klines"]:
         p = line.split(",")
-        klines.append({"date":p[0],"open":float(p[1]),"close":float(p[2]),
-            "high":float(p[3]),"low":float(p[4]),
-            "volume":int(p[5]) if p[5] else 0,
-            "amount":float(p[6]) if len(p)>6 and p[6] else 0})
-    return {"code":code,"period":period,"data":klines}
+        klines.append({
+            "date": p[0], "open": float(p[1]), "close": float(p[2]),
+            "high": float(p[3]), "low": float(p[4]),
+            "volume": int(p[5]) if p[5] else 0,
+            "amount": float(p[6]) if len(p) > 6 and p[6] else 0,
+        })
+    return {"code": code, "period": period, "data": klines}
 
 @app.get("/api/chart/minute")
 async def get_minute(code: str = Query(...)):
-    """分时数据代理: 浏览器→Render→东财"""
+    """分时数据: Render代理→东财"""
     secid = _em_secid(code)
     url = (
         f"https://push2.eastmoney.com/api/qt/stock/trends2/get"
         f"?secid={secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11"
         f"&fields2=f51,f52,f53,f54,f55,f56,f57,f58&lmt=240&ut={_EM_UT}"
     )
-    jd = await _proxy_get(url)
+    try:
+        jd = await _proxy_fetch(url)
+    except Exception as e:
+        raise HTTPException(502, f"东财API请求失败: {e}")
     if not jd or jd.get("rc") != 0 or not jd.get("data") or not jd["data"].get("trends"):
         raise HTTPException(502, f"东财API错误: rc={jd.get('rc','?')}")
     trends = []
     for line in jd["data"]["trends"]:
         p = line.split(",")
-        trends.append({"time":p[0],"price":float(p[2]) if len(p)>2 else 0,
-            "avg":float(p[6]) if len(p)>6 else 0,
-            "volume":int(p[7]) if len(p)>7 else 0})
-    return {"code":code,"data":trends}
+        trends.append({
+            "time": p[0],
+            "price": float(p[2]) if len(p) > 2 else 0,
+            "avg": float(p[6]) if len(p) > 6 else 0,
+            "volume": int(p[7]) if len(p) > 7 else 0,
+        })
+    return {"code": code, "data": trends}
 
 if __name__ == "__main__":
     import uvicorn
