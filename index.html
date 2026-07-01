@@ -450,6 +450,7 @@ body {
 // 双数据源: 优先实时后端API, 降级到GitHub Pages静态数据
 const BACKEND_URL = 'https://ai-pe-screener.onrender.com/api/data';  // Render.com 全市场实时PE后端
 const FALLBACK_URL = 'https://xdico93.github.io/ai-pe-screener/data.json';
+const CHART_BASE = 'https://ai-pe-screener.onrender.com';  // 图表数据代理(绕过CORS)
 const CACHE_KEY = 'aipescreener_data_v5';
 
 let STOCK_DATA = [];
@@ -1143,43 +1144,25 @@ async function robustFetch(code, period, signal) {
 }
 
 async function fetchKlineData(code, period, signal) {
-  const klt = { day: 101, week: 102, month: 103 }[period] || 101;
-  const lmt = period === 'month' ? 60 : 120;
-  const secid = emSecId(code);
-  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&klt=${klt}&fqt=0&lmt=${lmt}&end=20500101&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57&ut=f057cbc0c275a4e6f21e6a9c2f2e3e1e`;
-  const resp = await fetch(url, { signal, cache: 'no-cache' });
+  // 通过 Render 后端代理请求东财 K线 API（绕过浏览器 CORS）
+  const url = `${CHART_BASE}/api/chart/kline?code=${code}&period=${period}`;
+  const resp = await fetch(url, { signal });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const json = await resp.json();
-  if (!json || json.rc !== 0 || !json.data || !json.data.klines) {
-    throw new Error(json && json.rc ? `API error rc=${json.rc}` : 'No kline data');
-  }
-  return json.data.klines.map(line => {
-    const parts = line.split(',');
-    return {
-      date: parts[0], open: +parts[1], close: +parts[2], high: +parts[3], low: +parts[4],
-      volume: +parts[5], amount: +parts[6]
-    };
-  });
+  if (!json || !json.data || !json.data.length) return [];
+  return json.data;
 }
 
 async function fetchMinuteData(code, signal) {
-  const secid = emSecId(code);
-  const url = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11&fields2=f51,f52,f53,f54,f55,f56,f57,f58&lmt=240&ut=f057cbc0c275a4e6f21e6a9c2f2e3e1e`;
-  const resp = await fetch(url, { signal, cache: 'no-cache' });
+  // 通过 Render 后端代理请求东财分时 API（绕过浏览器 CORS）
+  const url = `${CHART_BASE}/api/chart/minute?code=${code}`;
+  const resp = await fetch(url, { signal });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const json = await resp.json();
-  if (!json || json.rc !== 0 || !json.data || !json.data.trends) {
-    throw new Error(json && json.rc ? `API error rc=${json.rc}` : 'No trends data');
-  }
-  return json.data.trends.map(line => {
-    const parts = line.split(',');
-    return {
-      time: parts[0], price: +parts[2], avg: +parts[6], volume: +parts[7]
-    };
-  });
+  if (!json || !json.data || !json.data.length) return [];
+  return json.data;
 }
 
-// ── Minute chart rendering (line chart) ──
 function drawMinuteChart(data) {
   const canvas = document.getElementById('stockChart');
   if (!canvas || !data.length) return;
