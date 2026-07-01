@@ -7,7 +7,7 @@ AI PE Screener 全市场实时数据后端 v3.0
 数据源: 腾讯财经 qt.gtimg.cn (不封IP, 200只/批, ~0.2s/批)
 字段: [1]=名称, [3]=价格, [39]=PE(TTM), [52]=PE(动/动态PE)
 
-性能: 5783只全市场, 5线程并行, ~5秒完成
+性能: 5783只全市场, 5线程并行, ~5秒完成 | K线数据: 腾讯财经 web.ifzq.gtimg.cn
 
 部署:
   pip install fastapi uvicorn
