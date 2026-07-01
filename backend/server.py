@@ -131,7 +131,7 @@ def get_cached_or_fetch():
         "totalMarketStocks": len(codes),
         "peAvailable": len(stocks),
         "aiSectors": sorted(ai_concepts_set),
-        "hotSectors": sorted(ai_concepts_set)[:8],
+        "hotSectors": sorted(ai_concepts_set),
         "elapsed": round(elapsed, 1),
         "source": "qq_finance_realtime",
         "updated": time.strftime("%Y-%m-%d %H:%M:%S"),
