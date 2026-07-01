@@ -234,7 +234,15 @@ def get_minute(code: str = Query(...)):
     qq = to_qq_code(code)
     url = f"https://web.ifzq.gtimg.cn/appstock/app/minute/query?_var=min_data&code={qq}"
     try:
-        jd = _fetch_json(url)
+        # 腾讯分时API返回 JSONP 格式: "min_data={...}"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            text = resp.read().decode("utf-8")
+        if text.startswith("min_data="):
+            text = text[9:]
+        jd = json.loads(text)
     except Exception as e:
         raise HTTPException(502, f"分时API请求失败: {e}")
     raw = (jd.get("data") or {}).get(qq, {}).get("data", {}).get("data", [])
