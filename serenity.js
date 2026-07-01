@@ -1,12 +1,13 @@
 /**
- * Serenity 评分引擎 v1.1 — 浏览器端 JavaScript 版
+ * Serenity 评分引擎 v1.2 — 浏览器端 JavaScript 版
  * ==================================================
  * 8正向维度 (0-5分) + 8惩罚维度 (0-5分)，含产业链分析模板。
  * 从 serenity_batch_score.py 1:1 翻译。
+ * v1.2: 支持亏损股 (ratio=null / peTTM≤0 / peDyn≤0)
  *
  * 用法:
  *   const result = Serenity.scoreStock(stock);
- *   // stock: { code, name, ratio, peTTM, price, sectors: [], isAiConcept }
+ *   // stock: { code, name, ratio, peTTM, peDyn, price, sectors: [], isAiConcept, isLoss }
  *   // result: { score, verdict, dimensions, analysis, flags, summary }
  */
 
@@ -263,8 +264,10 @@ const Serenity = (() => {
       }
     }
 
-    // valuation_disconnect: ratio越高越担忧
-    if (ratio > 100) {
+    // valuation_disconnect: ratio越高越担忧；亏损股设为0（无法用PE衡量）
+    if (ratio === null || ratio === undefined) {
+      dims.valuation_disconnect = 0;
+    } else if (ratio > 100) {
       dims.valuation_disconnect = 5;
     } else if (ratio > 10) {
       dims.valuation_disconnect = 3;
@@ -290,8 +293,13 @@ const Serenity = (() => {
     // catalyst_timing
     dims.catalyst_timing = isAi ? 4 : 2;
 
-    // Penalties
-    if (peTTM > 5000) {
+    // Penalties — 亏损股特殊处理
+    if (ratio === null || ratio === undefined) {
+      // 亏损股：会计准则可能承受压力，流动性/炒作风险偏高
+      dims.liquidity = peTTM < -100 ? 3 : 1;
+      dims.hype_risk = 2;
+      dims.accounting_quality = 4;  // 亏损期间会计操纵风险偏高
+    } else if (peTTM > 5000) {
       dims.liquidity = 4;
       dims.hype_risk = 4;
     } else if (peTTM > 1000) {
@@ -299,7 +307,7 @@ const Serenity = (() => {
       dims.hype_risk = 2;
     }
 
-    if (ratio > 100) {
+    if (ratio !== null && ratio !== undefined && ratio > 100) {
       dims.hype_risk = 5;
       dims.liquidity = 4;
     }
@@ -354,8 +362,10 @@ const Serenity = (() => {
 
   // ─── 对外主入口：对单只股票评分 ───
   function scoreStock(stock) {
-    const ratio = stock.ratio || 1;
-    const peTTM = stock.peTTM || 100;
+    const isLoss = stock.isLoss || (stock.peTTM <= 0 || stock.peDyn <= 0);
+    const ratio = isLoss ? null : (stock.ratio || 1);
+    const peTTM = stock.peTTM || (isLoss ? -1 : 100);
+    const peDyn = stock.peDyn || (isLoss ? -1 : 100);
     const sectors = stock.sectors || [];
     const isAi = stock.isAiConcept || false;
     const name = stock.name || '';
@@ -363,6 +373,12 @@ const Serenity = (() => {
     // 1. 维度拆分
     const dims = dimScoreMap(ratio, peTTM, sectors, isAi);
     const { score, verdict, flags } = calcScoreAndFlags(dims);
+
+    // 为亏损股降低评分（亏损基本面不确定）
+    const finalScore = isLoss ? Math.round(score * 0.85) : score;
+    const finalVerdict = finalScore >= 85 ? 'Top priority' :
+                         finalScore >= 70 ? 'High priority' :
+                         finalScore >= 55 ? 'Worth tracking' : 'Low priority';
 
     // 2. 产业链分析
     let analysis = null;
@@ -380,7 +396,18 @@ const Serenity = (() => {
     const summaryParts = [];
     summaryParts.push(name + '（' + (sectors[0] || '未分类') + '）');
 
-    if (ratio > 50) {
+    if (isLoss) {
+      if (peDyn < 0 && peTTM < 0) {
+        summaryParts.push('当前处于亏损状态（PE(TTM)=' + peTTM.toFixed(1) + '，动态PE=' + peDyn.toFixed(1) + '），双PE均为负值反映持续经营压力');
+      } else if (peDyn < 0) {
+        summaryParts.push('动态PE为负值(' + peDyn.toFixed(1) + ')，表明市场预期近期仍将亏损，PE(TTM)=' + peTTM.toFixed(1) + '可能因历史盈利尚为正');
+      } else {
+        summaryParts.push('PE(TTM)为负值(' + peTTM.toFixed(1) + ')，TTM期间存在大额亏损或减值，动态PE=' + peDyn.toFixed(1) + '反映盈利预期改善');
+      }
+      if (sectors.length > 0) {
+        summaryParts.push('所属板块' + sectors.slice(0,3).join('、') + '景气度是扭亏关键');
+      }
+    } else if (ratio > 50) {
       summaryParts.push(
         'PE(TTM)/动态PE比值' + ratio.toFixed(0) + 'x极高，主要因当前处于微利或亏损收窄阶段，TTM包含较多亏损季度导致PE(TTM)虚高'
       );
@@ -403,8 +430,8 @@ const Serenity = (() => {
     const summary = summaryParts.join('。') + '。';
 
     return {
-      score: score,
-      verdict: verdict,
+      score: finalScore,
+      verdict: finalVerdict,
       dimensions: {
         positive: Object.fromEntries(Object.keys(POSITIVE_WEIGHTS).map(k => [k, dims[k] || 0])),
         penalties: Object.fromEntries(Object.keys(PENALTY_LABELS).map(k => [k, dims[k] || 0])),
@@ -412,7 +439,7 @@ const Serenity = (() => {
       analysis: analysis,
       flags: flags,
       summary: summary,
-      method: 'browser_v1.1',
+      method: 'browser_v1.2',
     };
   }
 
