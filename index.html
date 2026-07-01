@@ -530,11 +530,19 @@ function initSectors() {
 }
 
 function isAiSector(name) {
-  const aiKw = ['cpo','光通信','存储芯片','液冷','算力','pcb','铜缆','先进封装','热管理',
-    '数据中心','华为算力','东数西算','ai','人工智能','芯片','半导体','光模块',
-    'hbm','硅光','服务器','gpu','封装','机器人'];
+  // 覆盖全部18个AI产业链板块（算力AI + 物理AI）
+  const aiKw = [
+    // 算力AI板块 (原10个)
+    'cpo','CPO','光通信','存储芯片','液冷','算力','pcb','PCB',
+    '铜缆连接','先进封装','热管理','数据中心','华为算力','东数西算',
+    // 物理AI板块 (新增8个)
+    '智能机器','人形机器人','机器人','机器视觉','视觉',
+    '减速器','传感器','工业母机','激光雷达','毫米波雷达','雷达',
+    // 通用关键词
+    'ai','人工智能','芯片','半导体','光模块','hbm','硅光','服务器','gpu'
+  ];
   const nl = name.toLowerCase();
-  return aiKw.some(k => nl.includes(k));
+  return aiKw.some(k => nl.includes(k.toLowerCase()));
 }
 
 function showEmpty(msg) {
@@ -630,7 +638,7 @@ function renderSelectedChips() {
 }
 
 function renderHotSectors() {
-  const hot = META.hotSectors || ALL_SECTORS.slice(0,30).map(s=>s.name);
+  const hot = META.aiSectors || META.hotSectors || ALL_SECTORS.slice(0,30).map(s=>s.name);
   const totalCount = STOCK_DATA.length;
   const totalHtml = `<span class="sector-chip${selectedSectors.size===0?' active':''}" onclick="clearSectors()">全部 ${totalCount}</span>`;
 
