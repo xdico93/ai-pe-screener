@@ -192,6 +192,7 @@ body {
 .ratio-high { color:var(--green); }
 .ratio-mid { color:var(--blue); }
 .ratio-low { color:var(--amber); }
+.ratio-loss { color:var(--sub); font-size:13px; }
 .serenity-badge {
   display:inline-flex; align-items:center; gap:3px;
   font-size:10px; padding:2px 7px; border-radius:10px; margin-top:3px;
@@ -758,8 +759,8 @@ function resetScoreUI() {
 function filterData() {
   if (!STOCK_DATA.length) return [];
   return STOCK_DATA.filter(s => {
-    // PE ratio filter
-    if (s.ratio < minRatio) return false;
+    // PE ratio filter: 亏损股(ratio===null)直接跳过比值筛选，始终显示
+    if (s.ratio !== null && s.ratio !== undefined && s.ratio < minRatio) return false;
     // Serenity score filter
     if (minScore > 0) {
       const score = s.serenity?.score ?? 0;
@@ -780,20 +781,33 @@ function filterData() {
     return true;
   }).sort((a,b) => {
     const va = a[sortKey], vb = b[sortKey];
+    // Handle null ratio: always sort to bottom
+    if (sortKey === 'ratio') {
+      if (va === null && vb === null) return 0;
+      if (va === null) return 1;
+      if (vb === null) return -1;
+    }
     if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
     return sortAsc ? va - vb : vb - va;
   });
 }
 
 function ratioClass(r) {
+  if (r === null || r === undefined) return 'ratio-loss';
   if (r >= 5) return 'ratio-high';
   if (r >= 2) return 'ratio-mid';
   return 'ratio-low';
 }
 
 function formatPE(v) {
-  if (v >= 1000) return (v/1000).toFixed(1)+'k';
+  if (v === null || v === undefined) return 'N/A';
+  if (Math.abs(v) >= 1000) return (v/1000).toFixed(1)+'k';
   return v.toFixed(1);
+}
+
+function formatRatio(r) {
+  if (r === null || r === undefined) return '亏损';
+  return r.toFixed(1) + 'x';
 }
 
 function serenityClass(score) {
@@ -862,7 +876,7 @@ function render() {
             <div class="card-name">${s.name}</div>
           </div>
           <div class="card-right">
-            <div class="card-ratio ${ratioCls}">${s.ratio.toFixed(1)}x</div>
+            <div class="card-ratio ${ratioCls}">${formatRatio(s.ratio)}</div>
             ${serCls ? `<div class="serenity-badge ${serCls}">${serLbl} ${ser.score}</div>` : ''}
           </div>
         </div>
