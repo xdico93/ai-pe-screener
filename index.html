@@ -381,8 +381,8 @@ body {
 <div class="ratio-ctrl">
   <div class="ratio-label">PE(TTM) / 动态PE 最低比值</div>
   <div class="ratio-presets">
-    <span class="ratio-preset" data-ratio="0" onclick="setMinRatio(this,0)">全部</span>
-    <span class="ratio-preset on" data-ratio="0.8" onclick="setMinRatio(this,0.8)">0.8</span>
+    <span class="ratio-preset on" data-ratio="0" onclick="setMinRatio(this,0)">全部</span>
+    <span class="ratio-preset" data-ratio="0.8" onclick="setMinRatio(this,0.8)">0.8</span>
     <span class="ratio-preset" data-ratio="1.0" onclick="setMinRatio(this,1.0)">1.0</span>
     <span class="ratio-preset" data-ratio="1.5" onclick="setMinRatio(this,1.5)">1.5</span>
     <span class="ratio-preset" data-ratio="2.0" onclick="setMinRatio(this,2.0)">2.0</span>
@@ -581,7 +581,7 @@ function showEmpty(msg) {
 }
 
 // ════════════════════ STATE ════════════════════
-let minRatio = 0.8;
+let minRatio = 0;
 let minScore = 0;
 let selectedSectors = new Set();
 let searchQuery = '';
@@ -1100,7 +1100,7 @@ async function fetchKlineData(code, period, signal) {
   const klt = { day: 101, week: 102, month: 103 }[period] || 101;
   const lmt = period === 'month' ? 60 : 120;
   const secid = emSecId(code);
-  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&klt=${klt}&fqt=0&lmt=${lmt}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57`;
+  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&klt=${klt}&fqt=0&lmt=${lmt}&end=20500101&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57&ut=f057cbc0c275a4e6f21e6a9c2f2e3e1e`;
   const resp = await fetch(url, { signal });
   const json = await resp.json();
   if (!json.data || !json.data.klines) return [];
@@ -1115,7 +1115,7 @@ async function fetchKlineData(code, period, signal) {
 
 async function fetchMinuteData(code, signal) {
   const secid = emSecId(code);
-  const url = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11&fields2=f51,f52,f53,f54,f55,f56,f57,f58&lmt=240`;
+  const url = `https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11&fields2=f51,f52,f53,f54,f55,f56,f57,f58&lmt=240&ut=f057cbc0c275a4e6f21e6a9c2f2e3e1e`;
   const resp = await fetch(url, { signal });
   const json = await resp.json();
   if (!json.data || !json.data.trends) return [];
