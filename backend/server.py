@@ -17,7 +17,6 @@ AI PE Screener 全市场实时数据后端 v3.0
 import json
 import os
 import time
-import asyncio
 import urllib.request
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -188,7 +187,7 @@ async def get_data():
     return get_cached_or_fetch()
 
 
-# ─── 图表数据代理 (绕过浏览器CORS, 纯标准库) ───
+# ─── 图表数据代理 (绕过浏览器CORS, 纯标准库, sync) ───
 
 _EM_UT = "f057cbc0c275a4e6f21e6a9c2f2e3e1e"
 _EM_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -197,22 +196,18 @@ def _em_secid(code: str) -> str:
     if code.startswith(("6", "8", "9")): return f"1.{code}"
     return f"0.{code}"
 
-def _sync_fetch_json(url: str) -> dict:
-    """同步 HTTP GET → JSON (在 thread pool 中运行)"""
+def _fetch_json(url: str, timeout: int = 10) -> dict:
+    """同步 HTTP GET → JSON, FastAPI async 路由中由线程池执行"""
     req = urllib.request.Request(url, headers={
         "User-Agent": _EM_UA,
         "Referer": "https://quote.eastmoney.com/",
     })
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
-async def _proxy_fetch(url: str) -> dict:
-    """在 thread pool 中执行同步 HTTP，避免阻塞 event loop"""
-    return await asyncio.to_thread(_sync_fetch_json, url)
-
 @app.get("/api/chart/kline")
-async def get_kline(code: str = Query(...), period: str = Query("day")):
-    """K线数据: Render代理→东财"""
+def get_kline(code: str = Query(...), period: str = Query("day")):
+    """K线数据代理: Render→东财 (sync, FastAPI自动线程池)"""
     klt = {"day": 101, "week": 102, "month": 103}.get(period, 101)
     lmt = 60 if period == "month" else 120
     secid = _em_secid(code)
@@ -223,7 +218,7 @@ async def get_kline(code: str = Query(...), period: str = Query("day")):
         f"&fields2=f51,f52,f53,f54,f55,f56,f57&ut={_EM_UT}"
     )
     try:
-        jd = await _proxy_fetch(url)
+        jd = _fetch_json(url)
     except Exception as e:
         raise HTTPException(502, f"东财API请求失败: {e}")
     if not jd or jd.get("rc") != 0 or not jd.get("data") or not jd["data"].get("klines"):
@@ -240,8 +235,8 @@ async def get_kline(code: str = Query(...), period: str = Query("day")):
     return {"code": code, "period": period, "data": klines}
 
 @app.get("/api/chart/minute")
-async def get_minute(code: str = Query(...)):
-    """分时数据: Render代理→东财"""
+def get_minute(code: str = Query(...)):
+    """分时数据代理: Render→东财 (sync, FastAPI自动线程池)"""
     secid = _em_secid(code)
     url = (
         f"https://push2.eastmoney.com/api/qt/stock/trends2/get"
@@ -249,7 +244,7 @@ async def get_minute(code: str = Query(...)):
         f"&fields2=f51,f52,f53,f54,f55,f56,f57,f58&lmt=240&ut={_EM_UT}"
     )
     try:
-        jd = await _proxy_fetch(url)
+        jd = _fetch_json(url)
     except Exception as e:
         raise HTTPException(502, f"东财API请求失败: {e}")
     if not jd or jd.get("rc") != 0 or not jd.get("data") or not jd["data"].get("trends"):
