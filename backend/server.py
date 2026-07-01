@@ -187,77 +187,75 @@ async def get_data():
     return get_cached_or_fetch()
 
 
-# ─── 图表数据代理 (绕过浏览器CORS, 纯标准库, sync) ───
-
-_EM_UT = "f057cbc0c275a4e6f21e6a9c2f2e3e1e"
-_EM_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-
-def _em_secid(code: str) -> str:
-    if code.startswith(("6", "8", "9")): return f"1.{code}"
-    return f"0.{code}"
+# ─── 图表数据代理 (腾讯财经API, 与PE数据同源, Render已验证可用) ───
 
 def _fetch_json(url: str, timeout: int = 10) -> dict:
-    """同步 HTTP GET → JSON, FastAPI async 路由中由线程池执行"""
+    """同步 HTTP GET → JSON"""
     req = urllib.request.Request(url, headers={
-        "User-Agent": _EM_UA,
-        "Referer": "https://quote.eastmoney.com/",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     })
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 @app.get("/api/chart/kline")
 def get_kline(code: str = Query(...), period: str = Query("day")):
-    """K线数据代理: Render→东财 (sync, FastAPI自动线程池)"""
-    klt = {"day": 101, "week": 102, "month": 103}.get(period, 101)
-    lmt = 60 if period == "month" else 120
-    secid = _em_secid(code)
-    url = (
-        f"https://push2his.eastmoney.com/api/qt/stock/kline/get"
-        f"?secid={secid}&klt={klt}&fqt=0&lmt={lmt}"
-        f"&end=20500101&fields1=f1,f2,f3,f4,f5,f6"
-        f"&fields2=f51,f52,f53,f54,f55,f56,f57&ut={_EM_UT}"
-    )
+    """K线数据: Render→腾讯财经 (sync, 与PE同源)"""
+    limit = {"day": 120, "week": 120, "month": 60}.get(period, 120)
+    qq = to_qq_code(code)
+    url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={qq},{period},,,{limit},qfq"
     try:
         jd = _fetch_json(url)
     except Exception as e:
-        raise HTTPException(502, f"东财API请求失败: {e}")
-    if not jd or jd.get("rc") != 0 or not jd.get("data") or not jd["data"].get("klines"):
-        raise HTTPException(502, f"东财API错误: rc={jd.get('rc','?')}")
+        raise HTTPException(502, f"K线API请求失败: {e}")
+    raw = (jd.get("data") or {}).get(qq, {}).get(f"qfq{period}", [])
+    if not raw or not isinstance(raw, list):
+        return {"code": code, "period": period, "data": []}
     klines = []
-    for line in jd["data"]["klines"]:
-        p = line.split(",")
-        klines.append({
-            "date": p[0], "open": float(p[1]), "close": float(p[2]),
-            "high": float(p[3]), "low": float(p[4]),
-            "volume": int(p[5]) if p[5] else 0,
-            "amount": float(p[6]) if len(p) > 6 and p[6] else 0,
-        })
+    for row in raw:
+        # Tencent format: ["date","open","close","high","low","volume"]
+        if not isinstance(row, list) or len(row) < 6: continue
+        try:
+            klines.append({
+                "date": str(row[0]),
+                "open": float(row[1]),
+                "close": float(row[2]),
+                "high": float(row[3]),
+                "low": float(row[4]),
+                "volume": int(float(row[5])),
+                "amount": float(row[6]) if len(row) > 6 and row[6] else 0,
+            })
+        except (ValueError, TypeError):
+            continue
     return {"code": code, "period": period, "data": klines}
 
 @app.get("/api/chart/minute")
 def get_minute(code: str = Query(...)):
-    """分时数据代理: Render→东财 (sync, FastAPI自动线程池)"""
-    secid = _em_secid(code)
-    url = (
-        f"https://push2.eastmoney.com/api/qt/stock/trends2/get"
-        f"?secid={secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11"
-        f"&fields2=f51,f52,f53,f54,f55,f56,f57,f58&lmt=240&ut={_EM_UT}"
-    )
+    """分时数据: Render→腾讯财经"""
+    qq = to_qq_code(code)
+    url = f"https://web.ifzq.gtimg.cn/appstock/app/minute/query?_var=min_data&code={qq}"
     try:
         jd = _fetch_json(url)
     except Exception as e:
-        raise HTTPException(502, f"东财API请求失败: {e}")
-    if not jd or jd.get("rc") != 0 or not jd.get("data") or not jd["data"].get("trends"):
-        raise HTTPException(502, f"东财API错误: rc={jd.get('rc','?')}")
+        raise HTTPException(502, f"分时API请求失败: {e}")
+    raw = (jd.get("data") or {}).get(qq, {}).get("data", {}).get("data", [])
+    if not raw or not isinstance(raw, list):
+        return {"code": code, "data": []}
     trends = []
-    for line in jd["data"]["trends"]:
-        p = line.split(",")
-        trends.append({
-            "time": p[0],
-            "price": float(p[2]) if len(p) > 2 else 0,
-            "avg": float(p[6]) if len(p) > 6 else 0,
-            "volume": int(p[7]) if len(p) > 7 else 0,
-        })
+    for row in raw:
+        # Tencent format: "HHMM price volume amount"
+        parts = str(row).split() if isinstance(row, str) else []
+        if len(parts) < 3: continue
+        try:
+            t = parts[0]
+            time_str = f"{t[:2]}:{t[2:]}" if len(t) >= 4 else t
+            trends.append({
+                "time": time_str,
+                "price": float(parts[1]),
+                "volume": int(float(parts[2])),
+                "amount": float(parts[3]) if len(parts) > 3 else 0,
+            })
+        except (ValueError, IndexError):
+            continue
     return {"code": code, "data": trends}
 
 if __name__ == "__main__":
