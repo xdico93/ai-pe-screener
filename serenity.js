@@ -443,10 +443,21 @@ const Serenity = (() => {
     };
   }
 
-  // ─── 批量评分 ───
+  // ─── 批量评分（单只失败不影响整体） ───
   function scoreAll(stocks) {
-    return stocks.map(s => {
-      s.serenity = scoreStock(s);
+    return stocks.map((s, idx) => {
+      try {
+        s.serenity = scoreStock(s);
+      } catch(e) {
+        console.warn('Serenity failed for', s.code || idx, e.message);
+        s.serenity = {
+          score: 0, verdict: 'Error',
+          dimensions: { positive: {}, penalties: {} },
+          analysis: DEFAULT_NON_AI_ANALYSIS,
+          flags: [], summary: s.name + '暂无法评分',
+          method: 'browser_v1.2_err'
+        };
+      }
       return s;
     });
   }
